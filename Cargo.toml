@@ -11,3 +11,4 @@ bitcoincore-rpc = "0.17.0"
 rustreexo = { path = "../rustreexo/" }
 sha2 = "0.10.6"
 anyhow = "1.0.71"
+kv = "0.24.0"
