@@ -5,20 +5,20 @@ use bitcoincore_rpc::{Client, RpcApi};
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof};
 
 use crate::{
-    prove::{ProofFile, ProofIndex, ProofsIndex},
+    prove::{ProofFile, BlockIndex, ProofsIndex},
     udata::LeafData,
 };
 
-pub struct Prover<'a> {
+pub struct Prover {
     file: ProofFile,
     rpc: Client,
     acc: Pollard,
-    storage: Arc<ProofsIndex<'a>>,
+    storage: Arc<ProofsIndex>,
     height: u32,
 }
 
-impl<'b> Prover<'b> {
-    pub fn new(rpc: Client, index_database: Arc<ProofsIndex<'b>>, file: ProofFile) -> Prover<'b> {
+impl Prover {
+    pub fn new(rpc: Client, index_database: Arc<ProofsIndex>, file: ProofFile) -> Prover {
         let height = rpc.get_block_count().unwrap() as u32;
         let acc = Pollard::new();
 

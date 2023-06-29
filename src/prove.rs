@@ -10,11 +10,11 @@ const PROOFS_PER_FILE: usize = 1000;
 
 /// Points to a proof in the file.
 #[derive(Debug, Clone, Copy)]
-pub struct ProofIndex {
+pub struct BlockIndex {
     file: u32,
     offset: usize,
 }
-impl ProofIndex {
+impl BlockIndex {
     pub fn new(file: u32, offset: usize) -> Self {
         Self { file, offset }
     }
@@ -40,20 +40,20 @@ impl ProofFile {
     }
 
     /// Returns the proof at the given index.
-    pub fn get(&mut self, index: ProofIndex) -> Proof {
+    pub fn get(&mut self, index: BlockIndex) -> Proof {
         self.file
             .seek(std::io::SeekFrom::Start(index.offset as u64))
             .unwrap();
         Proof::deserialize(&self.file).unwrap()
     }
-    pub fn append(&mut self, proof: Proof) -> ProofIndex {
+    pub fn append(&mut self, proof: Proof) -> BlockIndex {
         self.file.seek(std::io::SeekFrom::End(0)).unwrap();
         proof.serialize(&mut self.file).unwrap();
 
         let pos = self.file.stream_position().unwrap();
         let old_pos = self.index;
         self.index = pos as u32;
-        ProofIndex {
+        BlockIndex {
             file: self.id,
             offset: old_pos as usize,
         }
@@ -100,11 +100,11 @@ impl ProofFileManager {
     pub fn get_proof_count(&self) -> u32 {
         self.open_files.len() as u32 * PROOFS_PER_FILE as u32
     }
-    pub fn get_proof(&mut self, index: ProofIndex) -> Proof {
+    pub fn get_proof(&mut self, index: BlockIndex) -> Proof {
         let file = self.get_file(index.file);
         file.get(index)
     }
-    pub fn append(&mut self, proof: Proof) -> ProofIndex {
+    pub fn append(&mut self, proof: Proof) -> BlockIndex {
         let file = self.get_file(self.files);
         let index = file.append(proof);
         self.files += 1;
@@ -130,7 +130,7 @@ impl<'a> Iterator for ProofFileIterator<'a> {
         if self.index >= self.file.size {
             return None;
         }
-        let proof = self.file.get(ProofIndex {
+        let proof = self.file.get(BlockIndex {
             file: self.file.id,
             offset: self.index as usize,
         });
@@ -139,11 +139,11 @@ impl<'a> Iterator for ProofFileIterator<'a> {
     }
 }
 pub enum IndexEntry {
-    Index(ProofIndex),
+    Index(BlockIndex),
 }
 impl kv::Value for IndexEntry {
     fn from_raw_value(r: kv::Raw) -> Result<Self, kv::Error> {
-        Ok(IndexEntry::Index(ProofIndex {
+        Ok(IndexEntry::Index(BlockIndex {
             file: u32::from_be_bytes(r[0..4].try_into().unwrap()),
             offset: usize::from_be_bytes(r[4..].try_into().unwrap()),
         }))
@@ -159,21 +159,29 @@ impl kv::Value for IndexEntry {
         }
     }
 }
-pub struct ProofsIndex<'a> {
-    pub database: kv::Bucket<'a, &'a [u8], IndexEntry>,
+pub struct ProofsIndex {
+    pub database: kv::Store,
 }
 
-impl<'a> ProofsIndex<'a> {
-    pub fn get_index(&self, height: u32) -> Option<ProofIndex> {
+impl ProofsIndex {
+    pub fn get_index<'a>(&self, height: u32) -> Option<BlockIndex> {
+        let bucket = self
+            .database
+            .bucket::<&'a [u8], IndexEntry>(Some(&"index"))
+            .unwrap();
         let key = height.to_be_bytes();
-        match self.database.get(&&key.as_slice()) {
+        match bucket.get(&&*key.as_slice()) {
             Ok(Some(IndexEntry::Index(index))) => Some(index),
             _ => None,
         }
     }
-    pub fn append(&self, index: ProofIndex, height: u32) {
+    pub fn append<'a>(&self, index: BlockIndex, height: u32) {
+        let bucket = self
+            .database
+            .bucket::<&'a [u8], IndexEntry>(Some(&"index"))
+            .unwrap();
         let key = height.to_be_bytes();
-        self.database
+        bucket
             .set(&&key.as_slice(), &IndexEntry::Index(index))
             .expect("Failed to write index");
     }
@@ -207,8 +215,6 @@ mod tests {
                     cache_capacity: None,
                     segment_size: None,
                 })
-                .unwrap()
-                .bucket(Some("proofs"))
                 .unwrap(),
             };
 
@@ -235,8 +241,6 @@ mod tests {
                 cache_capacity: None,
                 segment_size: None,
             })
-            .unwrap()
-            .bucket(Some("proofs"))
             .unwrap(),
         };
         let file = OpenOptions::new()
