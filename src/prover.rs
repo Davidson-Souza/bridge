@@ -63,8 +63,7 @@ impl Prover {
     }
     pub fn keep_up(&mut self) -> anyhow::Result<()> {
         loop {
-            // let height = self.rpc.get_block_count().unwrap() as u32;
-            let height = 20_000;
+            let height = self.rpc.get_block_count().unwrap() as u32;
             if height > self.height {
                 self.prove_range(self.height + 1, height)?;
                 self.height = height;
