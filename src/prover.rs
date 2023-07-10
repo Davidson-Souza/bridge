@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use bitcoin::{
     consensus::{deserialize, serialize},
     network::utreexo::{BatchProof, CompactLeafData, ScriptPubkeyType, UData},
@@ -8,13 +6,16 @@ use bitcoin::{
 use bitcoin_hashes::Hash;
 use bitcoincore_rpc::{Client, RpcApi};
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     chainview,
     prove::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
-
 pub struct Prover {
     files: Arc<Mutex<BlocksFileManager>>,
     rpc: Client,
@@ -22,6 +23,7 @@ pub struct Prover {
     storage: Arc<BlocksIndex>,
     height: u32,
     view: Arc<chainview::ChainView>,
+    leaf_data: HashMap<OutPoint, LeafData>,
 }
 
 impl Prover {
@@ -43,6 +45,7 @@ impl Prover {
             storage: index_database,
             files,
             view,
+            leaf_data: HashMap::new(),
         }
     }
     fn try_from_disk() -> Pollard {
@@ -84,6 +87,9 @@ impl Prover {
             if height % 100 == 0 {
                 println!("Proving block {}", height);
             };
+            if height % 300_000 == 0 {
+                std::mem::take(&mut self.leaf_data);
+            }
             let (proof, leaves) = self.process_block(&block, height);
             let block = bitcoin::network::utreexo::UtreexoBlock {
                 block,
@@ -99,7 +105,7 @@ impl Prover {
         anyhow::Ok(())
     }
     fn get_spk_type(spk: &Script) -> ScriptPubkeyType {
-        if spk.is_p2pk() {
+        if spk.is_p2pkh() {
             ScriptPubkeyType::PubKeyHash
         } else if spk.is_p2sh() {
             ScriptPubkeyType::ScriptHash
@@ -111,7 +117,7 @@ impl Prover {
             ScriptPubkeyType::Other(spk.to_bytes().into_boxed_slice())
         }
     }
-    fn get_input_leaf_hash(&self, input: &TxIn) -> (NodeHash, CompactLeafData) {
+    fn get_input_leaf_hash_from_rpc(&self, input: &TxIn) -> LeafData {
         let tx_info = self
             .rpc
             .get_raw_transaction_info(&input.previous_output.txid, None)
@@ -128,7 +134,7 @@ impl Prover {
         } else {
             height << 1
         };
-        let leaf: LeafData = LeafData {
+        LeafData {
             block_hash: tx_info.blockhash.unwrap(),
             header_code,
             prevout: OutPoint {
@@ -136,11 +142,17 @@ impl Prover {
                 vout: input.previous_output.vout,
             },
             utxo: output.to_owned(),
-        };
+        }
+    }
+    fn get_input_leaf_hash(&mut self, input: &TxIn) -> (NodeHash, CompactLeafData) {
+        let leaf = self
+            .leaf_data
+            .remove(&input.previous_output)
+            .unwrap_or_else(|| self.get_input_leaf_hash_from_rpc(input));
         let compact_leaf = CompactLeafData {
-            spk_ty: Self::get_spk_type(&output.script_pubkey),
-            amount: output.value,
-            header_code,
+            spk_ty: Self::get_spk_type(&leaf.utxo.script_pubkey),
+            amount: leaf.utxo.value,
+            header_code: leaf.header_code,
         };
         (leaf.get_leaf_hashes(), compact_leaf)
     }
@@ -164,13 +176,14 @@ impl Prover {
             }
             for (idx, output) in tx.output.iter().enumerate() {
                 if !output.script_pubkey.is_provably_unspendable() {
+                    let header_code = if tx.is_coin_base() {
+                        height << 1 | 1
+                    } else {
+                        height << 1
+                    };
                     let leaf = LeafData {
                         block_hash: block.block_hash(),
-                        header_code: if tx.is_coin_base() {
-                            height << 1 | 1
-                        } else {
-                            height << 1
-                        },
+                        header_code,
                         prevout: OutPoint {
                             txid,
                             vout: idx as u32,
@@ -178,6 +191,13 @@ impl Prover {
                         utxo: output.to_owned(),
                     };
                     utxos.push(leaf.get_leaf_hashes());
+                    self.leaf_data.insert(
+                        OutPoint {
+                            txid,
+                            vout: idx as u32,
+                        },
+                        leaf,
+                    );
                 }
             }
         }

@@ -145,14 +145,17 @@ impl Peer {
             NetworkMessage::GetHeaders(locator) => {
                 let mut headers = vec![];
                 let block = *locator.locator_hashes.first().unwrap();
-                let Ok(Some(height)) = self.chainview.get_height(block) else {return};
+                let height = self.chainview.get_height(block).unwrap().unwrap_or(0);
                 let height = height + 1;
+
                 for h in height..(height + 2_000) {
                     let Ok(Some(block_hash)) = self.chainview.get_block_hash(h) else {break};
                     let Ok(Some(header_info)) = self.chainview.get_block(block_hash) else {break};
+
                     let header = deserialize(&header_info).unwrap();
                     headers.push(header);
                 }
+
                 let headers = &RawNetworkMessage {
                     magic: request.magic,
                     payload: NetworkMessage::Headers(headers),
