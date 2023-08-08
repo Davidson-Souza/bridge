@@ -5,7 +5,9 @@ use bitcoin::{
 };
 use bitcoin_hashes::Hash;
 use bitcoincore_rpc::{Client, RpcApi};
-use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard};
+use futures::channel::mpsc::Receiver;
+use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -64,8 +66,23 @@ impl Prover {
         let mut writer = std::io::BufWriter::new(file);
         self.acc.serialize(&mut writer).unwrap();
     }
-    pub fn keep_up(&mut self) -> anyhow::Result<()> {
+    pub fn keep_up(
+        &mut self,
+        stop: Arc<Mutex<bool>>,
+        mut receiver: Receiver<(Requests, futures::channel::oneshot::Sender<Responses>)>,
+    ) -> anyhow::Result<()> {
         loop {
+            if *stop.lock().unwrap() {
+                break;
+            }
+            if let Ok(Some((req, res))) = receiver.try_next() {
+                match req {
+                    Requests::GetProof(node) => {
+                        let (proof, _) = self.acc.prove(&[node]).unwrap();
+                        let _ = res.send(Responses::Proof(proof));
+                    }
+                }
+            }
             let height = self.rpc.get_block_count().unwrap() as u32;
             if height > self.height {
                 self.prove_range(self.height + 1, height)?;
@@ -73,8 +90,9 @@ impl Prover {
                 self.save_to_disk();
             }
             self.storage.update_height(height as usize);
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(std::time::Duration::from_micros(100));
         }
+        Ok(())
     }
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
@@ -87,9 +105,6 @@ impl Prover {
             if height % 100 == 0 {
                 println!("Proving block {}", height);
             };
-            if height % 300_000 == 0 {
-                std::mem::take(&mut self.leaf_data);
-            }
             let (proof, leaves) = self.process_block(&block, height);
             let block = bitcoin::network::utreexo::UtreexoBlock {
                 block,
@@ -216,4 +231,12 @@ impl Prover {
             compact_leaves,
         )
     }
+}
+
+pub enum Requests {
+    GetProof(NodeHash),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Responses {
+    Proof(Proof),
 }

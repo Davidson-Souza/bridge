@@ -9,10 +9,18 @@ edition = "2021"
 bitcoin = { version = "0.29" }
 bitcoincore-rpc = "0.16.0"
 bitcoin_hashes = "0.11"
-rustreexo = { git = "https://github.com/Davidson-Souza/rustreexo", branch = "full-pollard"}
+rustreexo = { git = "https://github.com/Davidson-Souza/rustreexo", branch = "full-pollard", features = ["with-serde"]}
 sha2 = "0.10.6"
 anyhow = "1.0.71"
 kv = "0.24.0"
+actix = "0.13.0"
+actix-web = "4.3.1"
+serde = "1.0.183"
+actix-files = "0.6.2"
+actix-session = "0.7.2"
+async-stream = "0.3.5"
+futures = "0.3.28"
+actix-rt = "2.8.0"
 
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
