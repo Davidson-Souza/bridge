@@ -1,3 +1,10 @@
+//SPDX-License-Identifier: MIT
+
+//! A prover is a thread that keeps up with the blockchain and generates proofs for
+//! the utreexo accumulator. Since it holds the entire accumulator, it also provides
+//! proofs for other modules. To avoid having multiple channels to and from the prover, it
+//! uses a channel to receive requests and sends responses through a oneshot channel, provided
+//! by the request sender. Maybe there is a better way to do this, but this is a TODO for later.
 use bitcoin::{
     consensus::{deserialize, serialize},
     network::utreexo::{BatchProof, CompactLeafData, ScriptPubkeyType, UData},
@@ -18,17 +25,31 @@ use crate::{
     prove::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
+
+/// All the state that the prover needs to keep track of
 pub struct Prover {
+    /// A reference to a file manager that holds the blocks on disk, using flat files.
     files: Arc<Mutex<BlocksFileManager>>,
+    /// A reference to the RPC client that is used to query the blockchain.
     rpc: Client,
+    /// The accumulator that holds the state of the utreexo accumulator.
     acc: Pollard,
+    /// An index that keeps track of the blocks that are stored on disk, we need this
+    /// to get the blocks from disk.
     storage: Arc<BlocksIndex>,
+    /// The height of the blockchain we are on.
     height: u32,
+    /// A reference to the chainview, this keeps a map of block hashes to heights and vice versa.
+    /// Also keeps block headers for easy access.
     view: Arc<chainview::ChainView>,
+    /// A map that keeps track of the leaf data for each outpoint. This is used to generate
+    /// proofs for the utreexo accumulator. This is more like a cache, since it won't be
+    /// persisted on shutdown.
     leaf_data: HashMap<OutPoint, LeafData>,
 }
 
 impl Prover {
+    /// Creates a new prover. It loads the accumulator from disk, if it exists.
     pub fn new(
         rpc: Client,
         index_database: Arc<BlocksIndex>,
@@ -50,8 +71,9 @@ impl Prover {
             leaf_data: HashMap::new(),
         }
     }
+    /// Tries to load the accumulator from disk. If it fails, it creates a new one.
     fn try_from_disk() -> Pollard {
-        let Ok(file) = std::fs::File::open("pollard") else {
+        let Ok(file) = std::fs::File::open(crate::subdir!("/pollard")) else {
             return Pollard::new();
         };
 
@@ -61,6 +83,9 @@ impl Prover {
             Err(_) => Pollard::new(),
         }
     }
+    /// Handles the request from another module. It returns a response through the oneshot channel
+    /// provided by the request sender. Errors are returned as strings, maybe this should be changed
+    /// to a boxed error or something else.
     fn handle_request(&mut self, req: Requests) -> anyhow::Result<Responses> {
         match req {
             Requests::GetProof(node) => {
@@ -97,15 +122,22 @@ impl Prover {
             }
         }
     }
+    /// Gracefully shuts down the prover. It saves the accumulator to disk and flushes the chainview.
     fn shutdown(&mut self) {
         self.save_to_disk();
         self.view.flush();
     }
+    /// Saves the accumulator to disk. This is done by serializing the accumulator to a file,
+    /// the serialization is done by the rustreexo library and is a depth first traversal of the
+    /// tree.
     fn save_to_disk(&self) {
-        let file = std::fs::File::create("pollard").unwrap();
+        let file = std::fs::File::create(crate::subdir!("/pollard")).unwrap();
         let mut writer = std::io::BufWriter::new(file);
         self.acc.serialize(&mut writer).unwrap();
     }
+    /// A infinite loop that keeps the prover up to date with the blockchain. It handles requests
+    /// from other modules and updates the accumulator when a new block is found. This method is
+    /// also how we create proofs for historical blocks.
     pub fn keep_up(
         &mut self,
         stop: Arc<Mutex<bool>>,
@@ -134,6 +166,7 @@ impl Prover {
         }
         Ok(())
     }
+    /// Proves a range of blocks, may be just one block.
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
             let block_hash = self.rpc.get_block_hash(height as u64).unwrap();
@@ -158,6 +191,7 @@ impl Prover {
         }
         anyhow::Ok(())
     }
+    /// Returns what spk type this output is. We need this to build a compact leaf data.
     fn get_spk_type(spk: &Script) -> ScriptPubkeyType {
         if spk.is_p2pkh() {
             ScriptPubkeyType::PubKeyHash
@@ -171,6 +205,9 @@ impl Prover {
             ScriptPubkeyType::Other(spk.to_bytes().into_boxed_slice())
         }
     }
+    /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
+    /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
+    /// leaf in the leaf_data.
     fn get_input_leaf_hash_from_rpc(&self, input: &TxIn) -> LeafData {
         let tx_info = self
             .rpc
@@ -198,6 +235,8 @@ impl Prover {
             utxo: output.to_owned(),
         }
     }
+    /// Returns the leaf hash and the compact leaf data for a given input. If the leaf is not in
+    /// leaf_data we will try to get it from the bitcoin core rpc.
     fn get_input_leaf_hash(&mut self, input: &TxIn) -> (NodeHash, CompactLeafData) {
         let leaf = self
             .leaf_data
@@ -210,7 +249,7 @@ impl Prover {
         };
         (leaf.get_leaf_hashes(), compact_leaf)
     }
-
+    /// Processes a block and returns the batch proof and the compact leaf data for the block.
     fn process_block(&mut self, block: &Block, height: u32) -> (BatchProof, Vec<CompactLeafData>) {
         let mut inputs = Vec::new();
         let mut utxos = Vec::new();
@@ -272,14 +311,23 @@ impl Prover {
     }
 }
 
+/// All requests we can send to the prover. The prover will respond with the corresponding
+/// response element.
 pub enum Requests {
+    /// Get the proof for a given leaf hash.
     GetProof(NodeHash),
+    /// Get the roots of the accumulator.
     GetRoots,
+    /// Get a block at a given height. This method returns the block and utreexo data for it.
     GetBlockByHeight(u32),
 }
+/// All responses the prover will send.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Responses {
+    /// A utreexo proof
     Proof(Proof),
+    /// The roots of the accumulator
     Roots(Vec<NodeHash>),
+    /// A block and the utreexo data for it, serialized.
     Block(Vec<u8>),
 }
