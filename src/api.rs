@@ -44,7 +44,14 @@ async fn get_proof(hash: web::Path<String>, data: web::Data<AppState>) -> impl R
         HttpResponse::NotFound().body("User not found")
     }
 }
-
+async fn get_roots(data: web::Data<AppState>) -> HttpResponse {
+    let res = perform_request(&data, Requests::GetRoots).await;
+    if let Some(roots) = res {
+        HttpResponse::Ok().json(roots)
+    } else {
+        HttpResponse::NotFound().body("User not found")
+    }
+}
 pub async fn create_api(
     request: Sender<(Requests, futures::channel::oneshot::Sender<Responses>)>,
 ) -> std::io::Result<()> {
@@ -56,6 +63,7 @@ pub async fn create_api(
         App::new()
             .app_data(app_state.clone())
             .route("/prove/{leaf}", web::get().to(get_proof))
+            .route("/roots", web::get().to(get_roots))
     })
     .bind("127.0.0.1:8080")?
     .run()

@@ -81,6 +81,10 @@ impl Prover {
                         let (proof, _) = self.acc.prove(&[node]).unwrap();
                         let _ = res.send(Responses::Proof(proof));
                     }
+                    Requests::GetRoots => {
+                        let roots = self.acc.get_roots().iter().map(|x| x.get_data()).collect();
+                        let _ = res.send(Responses::Roots(roots));
+                    }
                 }
             }
             let height = self.rpc.get_block_count().unwrap() as u32;
@@ -235,8 +239,10 @@ impl Prover {
 
 pub enum Requests {
     GetProof(NodeHash),
+    GetRoots,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Responses {
     Proof(Proof),
+    Roots(Vec<NodeHash>),
 }
