@@ -12,6 +12,18 @@ impl ChainView {
     pub fn new(storage: Store) -> Self {
         Self { storage }
     }
+    pub fn flush(&self) {
+        let _ = self
+            .storage
+            .bucket::<&[u8], Vec<u8>>(Some("headers"))
+            .unwrap()
+            .flush();
+        let _ = self
+            .storage
+            .bucket::<&[u8], Vec<u8>>(Some("index"))
+            .unwrap()
+            .flush();
+    }
     pub fn get_block(&self, hash: BlockHash) -> Result<Option<Vec<u8>>, kv::Error> {
         let bucket = self
             .storage

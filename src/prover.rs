@@ -61,6 +61,46 @@ impl Prover {
             Err(_) => Pollard::new(),
         }
     }
+    fn handle_request(&mut self, req: Requests) -> anyhow::Result<Responses> {
+        match req {
+            Requests::GetProof(node) => {
+                let (proof, _) = self
+                    .acc
+                    .prove(&[node])
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                Ok(Responses::Proof(proof))
+            }
+            Requests::GetRoots => {
+                let roots = self.acc.get_roots().iter().map(|x| x.get_data()).collect();
+                Ok(Responses::Roots(roots))
+            }
+            Requests::GetBlockByHeight(height) => {
+                let hash = self
+                    .rpc
+                    .get_block_hash(height as u64)
+                    .map_err(|_| anyhow::anyhow!("Block at height {} not found", height))?;
+                let block = self.storage.get_index(hash).ok_or(anyhow::anyhow!(
+                    "Block at height {} not found in storage",
+                    height
+                ))?;
+
+                let block = self
+                    .files
+                    .lock()
+                    .unwrap()
+                    .get_block(block)
+                    .ok_or(anyhow::anyhow!(
+                        "Block at height {} not found in files",
+                        height
+                    ))?;
+                Ok(Responses::Block(serialize(&block)))
+            }
+        }
+    }
+    fn shutdown(&mut self) {
+        self.save_to_disk();
+        self.view.flush();
+    }
     fn save_to_disk(&self) {
         let file = std::fs::File::create("pollard").unwrap();
         let mut writer = std::io::BufWriter::new(file);
@@ -69,23 +109,19 @@ impl Prover {
     pub fn keep_up(
         &mut self,
         stop: Arc<Mutex<bool>>,
-        mut receiver: Receiver<(Requests, futures::channel::oneshot::Sender<Responses>)>,
+        mut receiver: Receiver<(
+            Requests,
+            futures::channel::oneshot::Sender<Result<Responses, String>>,
+        )>,
     ) -> anyhow::Result<()> {
         loop {
             if *stop.lock().unwrap() {
+                self.shutdown();
                 break;
             }
             if let Ok(Some((req, res))) = receiver.try_next() {
-                match req {
-                    Requests::GetProof(node) => {
-                        let (proof, _) = self.acc.prove(&[node]).unwrap();
-                        let _ = res.send(Responses::Proof(proof));
-                    }
-                    Requests::GetRoots => {
-                        let roots = self.acc.get_roots().iter().map(|x| x.get_data()).collect();
-                        let _ = res.send(Responses::Roots(roots));
-                    }
-                }
+                let ret = self.handle_request(req).map_err(|e| e.to_string());
+                res.send(ret).unwrap();
             }
             let height = self.rpc.get_block_count().unwrap() as u32;
             if height > self.height {
@@ -106,9 +142,8 @@ impl Prover {
             let block = self.rpc.get_block(&block_hash).unwrap();
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
-            if height % 100 == 0 {
-                println!("Proving block {}", height);
-            };
+            println!("Proving block {}", height);
+
             let (proof, leaves) = self.process_block(&block, height);
             let block = bitcoin::network::utreexo::UtreexoBlock {
                 block,
@@ -240,9 +275,11 @@ impl Prover {
 pub enum Requests {
     GetProof(NodeHash),
     GetRoots,
+    GetBlockByHeight(u32),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Responses {
     Proof(Proof),
     Roots(Vec<NodeHash>),
+    Block(Vec<u8>),
 }
