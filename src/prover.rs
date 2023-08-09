@@ -13,6 +13,7 @@ use bitcoin::{
 use bitcoin_hashes::Hash;
 use bitcoincore_rpc::{Client, RpcApi};
 use futures::channel::mpsc::Receiver;
+use log::info;
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -57,10 +58,9 @@ impl Prover {
         view: Arc<chainview::ChainView>,
     ) -> Prover {
         let height = index_database.load_height() as u32;
-        println!("Loaded height {}", height);
+        info!("Loaded height {}", height);
         print!("Loading accumulator data...");
         let acc = Self::try_from_disk();
-        println!("(Done)");
         Self {
             rpc,
             acc,
@@ -175,7 +175,7 @@ impl Prover {
             let block = self.rpc.get_block(&block_hash).unwrap();
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
-            println!("Proving block {}", height);
+            info!("Proving block {}", height);
 
             let (proof, leaves) = self.process_block(&block, height);
             let block = bitcoin::network::utreexo::UtreexoBlock {

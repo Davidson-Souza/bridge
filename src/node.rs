@@ -14,6 +14,7 @@ use bitcoin::{
     },
     BlockHash,
 };
+use log::info;
 
 use crate::{
     chainview::ChainView,
@@ -163,7 +164,14 @@ impl Peer {
                 headers.consensus_encode(&mut self.writer).unwrap();
             }
             NetworkMessage::Version(version) => {
-                println!("Version {:?}", version);
+                info!(
+                    "Handshake success version={} blocks={} services={} address={:?} address_our={:?}",
+                    version.user_agent,
+                    version.start_height,
+                    version.services,
+                    version.receiver.address,
+                    version.sender.address
+                );
                 let our_version = &RawNetworkMessage {
                     magic: request.magic,
                     payload: NetworkMessage::Version(
@@ -191,19 +199,14 @@ impl Peer {
                 };
                 verack.consensus_encode(&mut self.writer).unwrap();
             }
-            NetworkMessage::Unknown { command, .. } => {
-                println!("Unknown request {:?}", command);
-            }
-            _ => {
-                println!("Unknown request {:?}", request.payload);
-            }
+            _ => {}
         }
         Ok(())
     }
     pub fn peer_loop(mut self) {
         loop {
-            if let Err(e) = self.handle_request() {
-                println!("Peer Error: {:?}", e);
+            if let Err(_) = self.handle_request() {
+                info!("Connection closed");
                 break;
             }
         }
@@ -226,7 +229,7 @@ impl<'a> Node {
     }
     pub fn accept_connections(self) {
         while let Ok((stream, addr)) = self.listener.accept() {
-            println!("New connection from {}", addr);
+            info!("New connection from {}", addr);
             let proof_backend = self.proof_backend.clone();
             let proof_index = self.proof_index.clone();
             let peer = Peer::new(

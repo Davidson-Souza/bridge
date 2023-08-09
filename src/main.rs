@@ -13,11 +13,20 @@ use actix_rt::signal::ctrl_c;
 use bitcoincore_rpc::{Auth, Client};
 
 use futures::channel::mpsc::channel;
+use log::{info, warn};
 use prove::{BlocksFileManager, BlocksIndex};
+use simplelog::{Config, SharedLogger};
 
 use crate::node::Node;
 
 fn main() -> anyhow::Result<()> {
+    // Initialize the logger
+    // TODO: make this configurable
+    init_logger(
+        Some(subdir!("debug.log")),
+        simplelog::LevelFilter::Info,
+        true,
+    );
     // Create a json-rpc client to bitcoin core
     let cookie = env!("HOME").to_owned() + "/.bitcoin/signet/.cookie";
     let client = Client::new(
@@ -65,10 +74,10 @@ fn main() -> anyhow::Result<()> {
     // and save them to disk.
     let mut prover = prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone());
 
-    println!("Starting p2p node");
+    info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
-    let listener = std::net::TcpListener::bind("0.0.0.0:38333").unwrap();
+    let listener = std::net::TcpListener::bind("0.0.0.0:8333").unwrap();
     let node = node::Node::new(listener, blocks, index_store, view);
     std::thread::spawn(move || {
         Node::accept_connections(node);
@@ -76,7 +85,7 @@ fn main() -> anyhow::Result<()> {
     let (sender, receiver) = channel(1024);
     // This is our implementation of the json-rpc api, it will listen for
     // incoming connections and serve some Utreexo data to clients.
-    println!("Starting api");
+    info!("Starting api");
     std::thread::spawn(|| {
         actix_rt::System::new()
             .block_on(api::create_api(sender))
@@ -88,11 +97,11 @@ fn main() -> anyhow::Result<()> {
 
     // Keep the prover running in the background, it will download blocks and
     // create proofs for them as they are mined.
-    println!("Running prover");
+    info!("Running prover");
     std::thread::spawn(move || {
         actix_rt::System::new().block_on(async {
             let _ = ctrl_c().await;
-            println!("Received a stop signal");
+            warn!("Received a stop signal");
             *kill_signal.lock().unwrap() = true;
         })
     });
@@ -106,3 +115,29 @@ macro_rules! subdir {
     };
 }
 pub(crate) use subdir;
+
+fn init_logger(log_file: Option<&str>, log_level: log::LevelFilter, log_to_term: bool) {
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
+    if let Some(file) = log_file {
+        let file_logger = simplelog::WriteLogger::new(
+            log_level,
+            Config::default(),
+            std::fs::File::create(file).unwrap(),
+        );
+        loggers.push(file_logger);
+    }
+    if log_to_term {
+        let term_logger = simplelog::TermLogger::new(
+            log_level,
+            Config::default(),
+            simplelog::TerminalMode::Mixed,
+            simplelog::ColorChoice::Auto,
+        );
+        loggers.push(term_logger);
+    }
+    if loggers.is_empty() {
+        eprintln!("No logger specified, logging disabled");
+        return;
+    }
+    let _ = simplelog::CombinedLogger::init(loggers);
+}
