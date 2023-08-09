@@ -52,8 +52,8 @@ impl Peer {
             chainview,
         }
     }
-    pub fn handle_request(&mut self) {
-        let request = RawNetworkMessage::consensus_decode(&mut self.reader).unwrap();
+    pub fn handle_request(&mut self) -> Result<(), bitcoin::consensus::encode::Error> {
+        let request = RawNetworkMessage::consensus_decode(&mut self.reader)?;
         match request.payload {
             NetworkMessage::Ping(nonce) => {
                 let pong = &RawNetworkMessage {
@@ -198,10 +198,14 @@ impl Peer {
                 println!("Unknown request {:?}", request.payload);
             }
         }
+        Ok(())
     }
     pub fn peer_loop(mut self) {
         loop {
-            self.handle_request();
+            if let Err(e) = self.handle_request() {
+                println!("Peer Error: {:?}", e);
+                break;
+            }
         }
     }
 }
