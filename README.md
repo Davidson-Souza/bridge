@@ -37,4 +37,4 @@ Assuming you have a Bitcoin node running, just start the bridge as follows:
 ./target/release/bridge
 ```
 
-The bridge will start listening on port 8333 for incoming connections from other nodes and clients. It will also start a websocket server on port 8334. API runs on port 8335. See (the API docs)[docs/API.md] for more information.
+The bridge will start listening on port 8333 for incoming connections from other nodes and clients. It will also start a websocket server on port 8334. API runs on port 8335. See [the API docs](docs/API.md) for more information.
