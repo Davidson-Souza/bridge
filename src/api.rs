@@ -6,8 +6,10 @@ use std::str::FromStr;
 
 use crate::prover::{Requests, Responses};
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::{channel::mpsc::Sender, lock::Mutex, SinkExt};
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
+use serde::{Deserialize, Serialize};
 
 /// This is the state of the actix-web server that will be passed as reference by each
 /// callback function. It contains a sender that can be used to send requests to the prover.
@@ -48,9 +50,18 @@ async fn get_proof(hash: web::Path<String>, data: web::Data<AppState>) -> impl R
     let res = perform_request(&data, Requests::GetProof(hash.unwrap())).await;
 
     match res {
-        Ok(Responses::Proof(proof)) => HttpResponse::Ok().json(proof),
-        Ok(_) => HttpResponse::InternalServerError().body("Invalid response"),
-        Err(e) => HttpResponse::InternalServerError().body(e),
+        Ok(Responses::Proof(proof)) => HttpResponse::Ok().json(json!({
+            "error": null,
+            "data": JsonProof::from(proof),
+        })),
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response",
+            "data": null
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": e,
+            "data": null
+        })),
     }
 }
 /// The handler for the `/block/{height}` endpoint. It returns the block at the given height.
@@ -58,19 +69,39 @@ async fn get_block_by_height(height: web::Path<u32>, data: web::Data<AppState>) 
     let height = height.into_inner();
     let res = perform_request(&data, Requests::GetBlockByHeight(height)).await;
     match res {
-        Ok(Responses::Block(block)) => HttpResponse::Ok().body(hex::encode(block)),
-        Ok(_) => HttpResponse::InternalServerError().body("Invalid response"),
-        Err(e) => HttpResponse::NotAcceptable().body(e),
+        Ok(Responses::Block(block)) => {
+            HttpResponse::Ok().json(json!({ "error": null, "data": hex::encode(block) }))
+        }
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response from backend",
+            "data": null
+        })),
+        Err(e) => HttpResponse::NotAcceptable().json(json!({
+            "error": e,
+            "data": null
+        })),
     }
 }
-
 /// The handler for the `/roots` endpoint. It returns the roots of the accumulator.
 async fn get_roots(data: web::Data<AppState>) -> HttpResponse {
     let res = perform_request(&data, Requests::GetRoots).await;
     match res {
-        Ok(Responses::Roots(roots)) => HttpResponse::Ok().json(roots),
-        Ok(_) => HttpResponse::InternalServerError().body("Invalid response"),
-        Err(e) => HttpResponse::NotAcceptable().body(e),
+        Ok(Responses::Roots(roots)) => {
+            let roots = roots.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+
+            HttpResponse::Ok().json(json!({
+                "error": null,
+                "data": roots
+            }))
+        }
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response",
+            "data": null
+        })),
+        Err(e) => HttpResponse::NotAcceptable().json(json!({
+            "error": e,
+            "data": null
+        })),
     }
 }
 
@@ -94,4 +125,22 @@ pub async fn create_api(
     .bind("0.0.0.0:8080")?
     .run()
     .await
+}
+/// The proof serialization by serde-json is not very nice, because it serializes byte-arrays
+/// as a array of integers. This struct is used to serialize the proof in a nicer way.
+#[derive(Clone, Serialize, Deserialize)]
+struct JsonProof {
+    targets: Vec<u64>,
+    hashes: Vec<String>,
+}
+
+impl From<Proof> for JsonProof {
+    fn from(proof: Proof) -> Self {
+        let targets = proof.targets;
+        let mut hashes = Vec::new();
+        for hash in proof.hashes {
+            hashes.push(hash.to_string());
+        }
+        JsonProof { targets, hashes }
+    }
 }
