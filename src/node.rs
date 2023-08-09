@@ -72,6 +72,8 @@ impl Peer {
                             let block = self.proof_index.get_index(block_hash).unwrap();
                             let mut lock = self.proof_backend.lock().unwrap();
                             match lock.get_block(block) {
+                                //TODO: Rust-Bitcoin asks for a block, but we have it serialized on disk already.
+                                //      We should be able to just send the block without deserializing it.
                                 Some(block) => {
                                     let block = RawNetworkMessage {
                                         magic: request.magic,
@@ -138,6 +140,7 @@ impl Peer {
                                 }
                             }
                         }
+                        // TODO: Prove mempool txs
                         _ => {}
                     }
                 }
