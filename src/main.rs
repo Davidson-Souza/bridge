@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
     println!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
-    let listener = std::net::TcpListener::bind("127.0.0.1:8333").unwrap();
+    let listener = std::net::TcpListener::bind("0.0.0.0:38333").unwrap();
     let node = node::Node::new(listener, blocks, index_store, view);
     std::thread::spawn(move || {
         Node::accept_connections(node);
