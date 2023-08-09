@@ -1,3 +1,5 @@
+//SPDX-License-Identifier: MIT
+
 //! We save proofs as a flat file, with a header that contains the number of proofs in the file.
 //! Each proof is a list of hashes and targets, we use those to reconstruct the tree up
 //! to the root. We save them as a flat blob.

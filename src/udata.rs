@@ -1,3 +1,5 @@
+//SPDX-License-Identifier: MIT
+
 use bitcoin::{consensus::{Encodable, Decodable}, BlockHash, OutPoint, TxOut};
 use rustreexo::accumulator::node_hash::NodeHash;
 use sha2::{Digest, Sha512_256};

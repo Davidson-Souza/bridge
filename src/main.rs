@@ -1,4 +1,4 @@
-#![feature(decl_macro)]
+//SPDX-License-Identifier: MIT
 
 mod api;
 mod chainview;

@@ -1,3 +1,5 @@
+//SPDX-License-Identifier: MIT
+
 use std::{
     io::{Cursor, Write},
     net::{TcpListener, TcpStream},

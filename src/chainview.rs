@@ -1,3 +1,5 @@
+//SPDX-License-Identifier: MIT
+
 //! Stores our local view of the blockchain. Mostly headers and an index of block heights.
 
 use bitcoin::BlockHash;
