@@ -1,13 +1,19 @@
 //SPDX-License-Identifier: MIT
 
 mod api;
+mod chaininterface;
 mod chainview;
+#[cfg(feature = "esplora")]
+mod esplora;
 mod node;
 mod prove;
 mod prover;
 mod udata;
 
-use std::sync::{Arc, Mutex};
+use std::{
+    env,
+    sync::{Arc, Mutex},
+};
 
 use actix_rt::signal::ctrl_c;
 use bitcoincore_rpc::{Auth, Client};
@@ -27,13 +33,7 @@ fn main() -> anyhow::Result<()> {
         simplelog::LevelFilter::Info,
         true,
     );
-    // Create a json-rpc client to bitcoin core
-    let cookie = env!("HOME").to_owned() + "/.bitcoin/signet/.cookie";
-    let client = Client::new(
-        "localhost:38332".into(),
-        Auth::CookieFile(cookie.clone().into()),
-    )
-    .unwrap();
+    // let client = esplora::EsploraBlockchain::new("https://mempool.space/signet/api".into());
     // Create a chainview, this module will download headers from the bitcoin core
     // to keep track of the current chain state and speed up replying to headers requests
     // from peers.
@@ -72,12 +72,28 @@ fn main() -> anyhow::Result<()> {
     // Create a prover, this module will download blocks from the bitcoin core
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
-    let mut prover = prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone());
+    // Create a json-rpc client to bitcoin core
+    #[cfg(not(feature = "esplora"))]
+    let mut prover = {
+        let cookie = env!("HOME").to_owned() + "/.bitcoin/signet/.cookie";
+        let client = Client::new(
+            "localhost:38332".into(),
+            Auth::CookieFile(cookie.clone().into()),
+        )
+        .unwrap();
+
+        prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone())
+    };
+    #[cfg(feature = "esplora")]
+    let mut prover = {
+        let client = esplora::EsploraBlockchain::new("https://mempool.space/signet/api".into());
+        prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone())
+    };
 
     info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
-    let listener = std::net::TcpListener::bind("0.0.0.0:8333").unwrap();
+    let listener = std::net::TcpListener::bind("0.0.0.0:38333").unwrap();
     let node = node::Node::new(listener, blocks, index_store, view);
     std::thread::spawn(move || {
         Node::accept_connections(node);

@@ -6,12 +6,11 @@
 //! uses a channel to receive requests and sends responses through a oneshot channel, provided
 //! by the request sender. Maybe there is a better way to do this, but this is a TODO for later.
 use bitcoin::{
-    consensus::{deserialize, serialize},
+    consensus::serialize,
     network::utreexo::{BatchProof, CompactLeafData, ScriptPubkeyType, UData},
-    Block, BlockHash, OutPoint, Script, Transaction, TxIn, VarInt,
+    Block, BlockHash, OutPoint, Script, TxIn, VarInt,
 };
 use bitcoin_hashes::Hash;
-use bitcoincore_rpc::{Client, RpcApi};
 use futures::channel::mpsc::Receiver;
 use log::info;
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof};
@@ -22,17 +21,18 @@ use std::{
 };
 
 use crate::{
+    chaininterface::Blockchain,
     chainview,
     prove::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
 
 /// All the state that the prover needs to keep track of
-pub struct Prover {
+pub struct Prover<ChainProvider: Blockchain> {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
     files: Arc<Mutex<BlocksFileManager>>,
     /// A reference to the RPC client that is used to query the blockchain.
-    rpc: Client,
+    rpc: ChainProvider,
     /// The accumulator that holds the state of the utreexo accumulator.
     acc: Pollard,
     /// An index that keeps track of the blocks that are stored on disk, we need this
@@ -49,14 +49,17 @@ pub struct Prover {
     leaf_data: HashMap<OutPoint, LeafData>,
 }
 
-impl Prover {
+impl<Chain: Blockchain> Prover<Chain>
+where
+    Chain::Error: std::error::Error,
+{
     /// Creates a new prover. It loads the accumulator from disk, if it exists.
     pub fn new(
-        rpc: Client,
+        rpc: Chain,
         index_database: Arc<BlocksIndex>,
         files: Arc<Mutex<BlocksFileManager>>,
         view: Arc<chainview::ChainView>,
-    ) -> Prover {
+    ) -> Prover<Chain> {
         let height = index_database.load_height() as u32;
         info!("Loaded height {}", height);
         print!("Loading accumulator data...");
@@ -146,6 +149,7 @@ impl Prover {
             futures::channel::oneshot::Sender<Result<Responses, String>>,
         )>,
     ) -> anyhow::Result<()> {
+        let mut last_tip_update = std::time::Instant::now();
         loop {
             if *stop.lock().unwrap() {
                 self.shutdown();
@@ -155,13 +159,17 @@ impl Prover {
                 let ret = self.handle_request(req).map_err(|e| e.to_string());
                 res.send(ret).unwrap();
             }
-            let height = self.rpc.get_block_count().unwrap() as u32;
-            if height > self.height {
-                self.prove_range(self.height + 1, height)?;
-                self.height = height;
-                self.save_to_disk();
+            if last_tip_update.elapsed().as_secs() > 10 {
+                let height = self.rpc.get_block_count().unwrap() as u32;
+                if height > self.height {
+                    self.prove_range(self.height + 1, height)?;
+                    self.height = height;
+                    self.save_to_disk();
+                }
+                self.storage.update_height(height as usize);
+                last_tip_update = std::time::Instant::now();
             }
-            self.storage.update_height(height as usize);
+
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
         Ok(())
@@ -172,7 +180,7 @@ impl Prover {
             let block_hash = self.rpc.get_block_hash(height as u64).unwrap();
             self.view.save_block_hash(height, block_hash)?;
             self.view.save_height(block_hash, height)?;
-            let block = self.rpc.get_block(&block_hash).unwrap();
+            let block = self.rpc.get_block(block_hash).unwrap();
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
             info!("Proving block {}", height);
@@ -211,16 +219,11 @@ impl Prover {
     fn get_input_leaf_hash_from_rpc(&self, input: &TxIn) -> LeafData {
         let tx_info = self
             .rpc
-            .get_raw_transaction_info(&input.previous_output.txid, None)
+            .get_raw_transaction_info(&input.previous_output.txid)
             .expect("Bitcoin core isn't working");
-        let tx: Transaction = deserialize(&tx_info.hex).unwrap();
-        let output = tx.output[input.previous_output.vout as usize].clone();
-        let height = self
-            .rpc
-            .get_block_header_info(&tx_info.blockhash.unwrap())
-            .unwrap()
-            .height as u32;
-        let header_code = if tx.is_coin_base() {
+        let height = tx_info.height;
+        let output = &tx_info.tx.output[input.previous_output.vout as usize];
+        let header_code = if tx_info.is_coinbase {
             height << 1 | 1
         } else {
             height << 1

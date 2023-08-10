@@ -16,7 +16,9 @@ categories = ["bitcoin", "tools"]
 bitcoin = { version = "0.29" }
 bitcoincore-rpc = "0.16.0"
 bitcoin_hashes = "0.11"
-rustreexo = { git = "https://github.com/Davidson-Souza/rustreexo", branch = "full-pollard", features = ["with-serde"]}
+rustreexo = { git = "https://github.com/Davidson-Souza/rustreexo", branch = "full-pollard", features = [
+    "with-serde",
+] }
 sha2 = "0.10.6"
 anyhow = "1.0.71"
 kv = "0.24.0"
@@ -31,6 +33,12 @@ actix-rt = "2.8.0"
 hex = "0.4.3"
 log = "0.4.19"
 simplelog = "0.12.1"
+reqwest = { version = "0.11.18", features = ["blocking", "rustls", "__tls", "__rustls", "rustls-tls-webpki-roots"], optional = true, default-features = false }
+serde_json = { version = "1.0.104", optional = true }
 
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
+
+[features]
+esplora = ["reqwest", "serde_json"]
+default = []
