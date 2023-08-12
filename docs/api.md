@@ -4,6 +4,7 @@ This Bridge software contains a REST API that allows users to interact with the 
 - [GET /roots](#get-roots)
 - [GET /proof/{leaf_hash}](#get-proofleaf_hash)
 - [GET /block/{block_height}](#get-blockblock_height)
+- [GET /tx/{hash}/ouputs](#get-txhashouputs)
 
 Planned:
 - GET /tx/{txid}
@@ -65,5 +66,58 @@ $ curl localhost:8080/block/1
 {
     "data": "00000020f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000f575c83235984e7dc4afc1f30944c170462e84437ab6f2d52e16878a79e4678bd1914d5fae77031eccf4070001010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff025151feffffff0200f2052a010000001600149243f727dd5343293eb83174324019ec16c2630f0000000000000000776a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402205e423a8754336ca99dbe16509b877ef1bf98d008836c725005b3c787c41ebe46022047246e4467ad7cc7f1ad98662afcaf14c115e0095a227c7b05c5182591c23e7e0100012000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     "error":null
+}
+```
+
+## GET /tx/{block_height}/outputs
+
+Returns the list of UTXOs created at this transaction and the proof for it. If any output is spent, it won't be proved.
+
+### Example
+
+```bash
+$curl http://localhost:8080/tx f757cab0229313c843d93943c41a26823c8439be001a8179bbd0b9f27d1e2d89/outputs
+{
+  "data": {
+    "proof": {
+      "hashes": [
+        "0938d5c1c06281744d4a00643cd7b8aadd009749e906044482a5233e9275c664",
+        "3e5f1f7679a1cf00e3ab6438d4f8a5abfc493732a460dad32096df33c6d55c1b",
+        "8f02c9b052c50898ea154dd8f18e9cb9706ba215528d432d2c8f97d09a6bac51",
+        "674b3f05ffda0c0fcf9bac97e6df14eba6a61cc5d8d937b76d0219db2f064f4e",
+        "239beadd1239f430271c18e9056f7958fe6e339abad69daf635868c7c2444ed4",
+        "27c1c89302ff1a492d4107c8fd6876138966abc7c30b89d66fe0540623e449cc",
+        "638cecae791f27821fb6af9ae4e9f02cbdca3dc6b86c806b6976e531b7a03566"
+      ],
+      "targets": [
+        3580287
+      ]
+    },
+    "tx": {
+      "input": [
+        {
+          "previous_output": "0000000000000000000000000000000000000000000000000000000000000000:4294967295",
+          "script_sig": "036c60020a2f7369676e65743a332f",
+          "sequence": 4294967294,
+          "witness": [
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ]
+        }
+      ],
+      "lock_time": 0,
+      "output": [
+        {
+          "script_pubkey": "51207099e4b23427fc40ba4777bbf52cfd0b7444d69a3e21ef281270723f54c0c14b",
+          "value": 5000000000
+        },
+        {
+          "script_pubkey": "6a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf94c4fecc7daa2490047304402202b2d782c3a26b6529d0d503e00447e8eabf4039908929315fba2ce5b217392dd0220549787d18146131b65a1920336331e3c0807043e6bd64a85131022551e2044120100",
+          "value": 0
+        }
+      ],
+      "version": 2
+    }
+  },
+  "error": null
 }
 ```

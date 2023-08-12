@@ -16,6 +16,7 @@ use std::{
 };
 
 use actix_rt::signal::ctrl_c;
+#[cfg(not(feature = "esplora"))]
 use bitcoincore_rpc::{Auth, Client};
 
 use futures::channel::mpsc::channel;
@@ -93,7 +94,7 @@ fn main() -> anyhow::Result<()> {
     info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
-    let listener = std::net::TcpListener::bind("0.0.0.0:38333").unwrap();
+    let listener = std::net::TcpListener::bind("0.0.0.0:28333").unwrap();
     let node = node::Node::new(listener, blocks, index_store, view);
     std::thread::spawn(move || {
         Node::accept_connections(node);

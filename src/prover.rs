@@ -8,7 +8,7 @@
 use bitcoin::{
     consensus::serialize,
     network::utreexo::{BatchProof, CompactLeafData, ScriptPubkeyType, UData},
-    Block, BlockHash, OutPoint, Script, TxIn, VarInt,
+    Block, BlockHash, OutPoint, Script, Sequence, Transaction, TxIn, Txid, VarInt, Witness,
 };
 use bitcoin_hashes::Hash;
 use futures::channel::mpsc::Receiver;
@@ -123,6 +123,46 @@ where
                     ))?;
                 Ok(Responses::Block(serialize(&block)))
             }
+            Requests::GetTransaction(txid) => {
+                let tx = self
+                    .rpc
+                    .get_transaction(txid)
+                    .map_err(|_| anyhow::anyhow!("Transaction {} not found", txid))?;
+                // TODO: this is a bit of a hack, but it works for now.
+                // Rustreexo should have a way to check whether an element is in the
+                // pollard. We have this information in the map anyway.
+                let hashes: Vec<LeafData> = tx
+                    .output
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(idx, _)| {
+                        Self::get_full_input_leaf_data(
+                            &mut self.leaf_data,
+                            &TxIn {
+                                previous_output: OutPoint {
+                                    txid,
+                                    vout: idx as u32,
+                                },
+                                script_sig: Script::new(),
+                                sequence: Sequence::ZERO,
+                                witness: Witness::new(),
+                            },
+                            &self.rpc,
+                        )
+                    })
+                    .filter(|x| self.acc.prove(&[x.get_leaf_hashes()]).is_ok())
+                    .collect();
+                let (proof, _) = self
+                    .acc
+                    .prove(
+                        &hashes
+                            .iter()
+                            .map(|x| x.get_leaf_hashes())
+                            .collect::<Vec<_>>(),
+                    )
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                Ok(Responses::Transaction((tx, proof)))
+            }
         }
     }
     /// Gracefully shuts down the prover. It saves the accumulator to disk and flushes the chainview.
@@ -216,11 +256,10 @@ where
     /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
-    fn get_input_leaf_hash_from_rpc(&self, input: &TxIn) -> LeafData {
-        let tx_info = self
-            .rpc
+    fn get_input_leaf_hash_from_rpc(rpc: &Chain, input: &TxIn) -> Option<LeafData> {
+        let tx_info = rpc
             .get_raw_transaction_info(&input.previous_output.txid)
-            .expect("Bitcoin core isn't working");
+            .ok()?;
         let height = tx_info.height;
         let output = &tx_info.tx.output[input.previous_output.vout as usize];
         let header_code = if tx_info.is_coinbase {
@@ -228,7 +267,7 @@ where
         } else {
             height << 1
         };
-        LeafData {
+        Some(LeafData {
             block_hash: tx_info.blockhash.unwrap(),
             header_code,
             prevout: OutPoint {
@@ -236,7 +275,16 @@ where
                 vout: input.previous_output.vout,
             },
             utxo: output.to_owned(),
-        }
+        })
+    }
+    fn get_full_input_leaf_data(
+        leaf_data: &mut HashMap<OutPoint, LeafData>,
+        input: &TxIn,
+        rpc: &Chain,
+    ) -> Option<LeafData> {
+        leaf_data
+            .remove(&input.previous_output)
+            .or_else(|| Self::get_input_leaf_hash_from_rpc(rpc, input))
     }
     /// Returns the leaf hash and the compact leaf data for a given input. If the leaf is not in
     /// leaf_data we will try to get it from the bitcoin core rpc.
@@ -244,7 +292,7 @@ where
         let leaf = self
             .leaf_data
             .remove(&input.previous_output)
-            .unwrap_or_else(|| self.get_input_leaf_hash_from_rpc(input));
+            .unwrap_or_else(|| Self::get_input_leaf_hash_from_rpc(&self.rpc, input).unwrap());
         let compact_leaf = CompactLeafData {
             spk_ty: Self::get_spk_type(&leaf.utxo.script_pubkey),
             amount: leaf.utxo.value,
@@ -323,6 +371,8 @@ pub enum Requests {
     GetRoots,
     /// Get a block at a given height. This method returns the block and utreexo data for it.
     GetBlockByHeight(u32),
+    /// Returns a transaction and a proof for all inputs
+    GetTransaction(Txid),
 }
 /// All responses the prover will send.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -333,4 +383,5 @@ pub enum Responses {
     Roots(Vec<NodeHash>),
     /// A block and the utreexo data for it, serialized.
     Block(Vec<u8>),
+    Transaction((Transaction, Proof)),
 }

@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use crate::prover::{Requests, Responses};
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use bitcoin::Txid;
 use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::{channel::mpsc::Sender, lock::Mutex, SinkExt};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
@@ -53,6 +54,32 @@ async fn get_proof(hash: web::Path<String>, data: web::Data<AppState>) -> impl R
         Ok(Responses::Proof(proof)) => HttpResponse::Ok().json(json!({
             "error": null,
             "data": JsonProof::from(proof),
+        })),
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response",
+            "data": null
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": e,
+            "data": null
+        })),
+    }
+}
+async fn get_transaction(hash: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
+    let hash = hash.into_inner();
+    let hash = Txid::from_str(&hash);
+    if let Err(e) = hash {
+        return HttpResponse::BadRequest().body(format!("Invalid hash {e}"));
+    }
+    let res = perform_request(&data, Requests::GetTransaction(hash.unwrap())).await;
+
+    match res {
+        Ok(Responses::Transaction((tx, proof))) => HttpResponse::Ok().json(json!({
+            "error": null,
+            "data": {
+                "tx": tx,
+                "proof": JsonProof::from(proof),
+            },
         })),
         Ok(_) => HttpResponse::InternalServerError().json(json!({
             "error": "Invalid response",
@@ -121,6 +148,7 @@ pub async fn create_api(
             .route("/prove/{leaf}", web::get().to(get_proof))
             .route("/roots", web::get().to(get_roots))
             .route("/block/{height}", web::get().to(get_block_by_height))
+            .route("/tx/{hash}/outputs", web::get().to(get_transaction))
     })
     .bind("0.0.0.0:8080")?
     .run()
