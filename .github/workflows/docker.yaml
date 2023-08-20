@@ -22,5 +22,5 @@ jobs:
         run: |
           docker buildx create --use
           docker buildx inspect --bootstrap
-          docker buildx build --file Dockerfile --tag dsz/rust-app:latest --push .
+          docker buildx build --file Dockerfile --tag dlsz/bridge:latest --push .
 
