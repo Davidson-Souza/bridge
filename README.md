@@ -27,6 +27,20 @@ cd bridge
 cargo build --release
 ```
 
+### Docker
+
+We provide a Dockerfile that can be used to build a docker image. You can build it as follows:
+
+```bash
+docker build -t bridge .
+```
+
+or you can pull it from dockerhub:
+
+```bash
+docker pull dlsz/bridge
+```
+
 ## Using
 
 ### Running the node
@@ -54,6 +68,10 @@ export ESPLORA_URL=https://blockstream.info/api
 ```
 
 This will reduce one requirement for running the bridge, but will make your setup slower and less secure. You'll need to trust the esplora backend to provide you with the correct blocks and transactions. We have no way to know if the esplora backend is lying to us.
+
+## Environment variables
+
+There are a few environment variables that can be used to configure the bridge node. See .env.sample for a list of all variables.
 
 ### Features
 

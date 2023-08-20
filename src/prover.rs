@@ -28,11 +28,11 @@ use crate::{
 };
 
 /// All the state that the prover needs to keep track of
-pub struct Prover<ChainProvider: Blockchain> {
+pub struct Prover {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
     files: Arc<Mutex<BlocksFileManager>>,
     /// A reference to the RPC client that is used to query the blockchain.
-    rpc: ChainProvider,
+    rpc: Box<dyn Blockchain>,
     /// The accumulator that holds the state of the utreexo accumulator.
     acc: Pollard,
     /// An index that keeps track of the blocks that are stored on disk, we need this
@@ -49,17 +49,14 @@ pub struct Prover<ChainProvider: Blockchain> {
     leaf_data: HashMap<OutPoint, LeafData>,
 }
 
-impl<Chain: Blockchain> Prover<Chain>
-where
-    Chain::Error: std::error::Error,
-{
+impl Prover {
     /// Creates a new prover. It loads the accumulator from disk, if it exists.
     pub fn new(
-        rpc: Chain,
+        rpc: Box<dyn Blockchain>,
         index_database: Arc<BlocksIndex>,
         files: Arc<Mutex<BlocksFileManager>>,
         view: Arc<chainview::ChainView>,
-    ) -> Prover<Chain> {
+    ) -> Prover {
         let height = index_database.load_height() as u32;
         info!("Loaded height {}", height);
         print!("Loading accumulator data...");
@@ -76,7 +73,7 @@ where
     }
     /// Tries to load the accumulator from disk. If it fails, it creates a new one.
     fn try_from_disk() -> Pollard {
-        let Ok(file) = std::fs::File::open(crate::subdir!("/pollard")) else {
+        let Ok(file) = std::fs::File::open(crate::subdir("/pollard")) else {
             return Pollard::new();
         };
 
@@ -174,7 +171,7 @@ where
     /// the serialization is done by the rustreexo library and is a depth first traversal of the
     /// tree.
     fn save_to_disk(&self) {
-        let file = std::fs::File::create(crate::subdir!("/pollard")).unwrap();
+        let file = std::fs::File::create(crate::subdir("/pollard")).unwrap();
         let mut writer = std::io::BufWriter::new(file);
         self.acc.serialize(&mut writer).unwrap();
     }
@@ -256,7 +253,7 @@ where
     /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
-    fn get_input_leaf_hash_from_rpc(rpc: &Chain, input: &TxIn) -> Option<LeafData> {
+    fn get_input_leaf_hash_from_rpc(rpc: &Box<dyn Blockchain>, input: &TxIn) -> Option<LeafData> {
         let tx_info = rpc
             .get_raw_transaction_info(&input.previous_output.txid)
             .ok()?;
@@ -280,7 +277,7 @@ where
     fn get_full_input_leaf_data(
         leaf_data: &mut HashMap<OutPoint, LeafData>,
         input: &TxIn,
-        rpc: &Chain,
+        rpc: &Box<dyn Blockchain>,
     ) -> Option<LeafData> {
         leaf_data
             .remove(&input.previous_output)

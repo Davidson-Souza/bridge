@@ -4,12 +4,12 @@
 //! of Bitcoin Core. But keep in mind that while doing the initial sync, it will be slower and
 //! you risk getting banned from the server if you do too many requests.
 
-use std::fmt::Display;
-
 use crate::chaininterface::{Blockchain, TransactionInfo};
+use anyhow::Result;
 use bitcoin::{consensus, Block, BlockHash};
 use bitcoin_hashes::Hash;
 use reqwest::blocking::Client;
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct EsploraBlockchain {
@@ -27,34 +27,32 @@ impl EsploraBlockchain {
 }
 
 impl Blockchain for EsploraBlockchain {
-    type Error = EsploraError;
-
-    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash, Self::Error> {
+    fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash> {
         let url = format!("{}/block-height/{}", self.url, height);
         let block = self.client.get(&url).send()?.text()?;
         Ok(block.parse().unwrap_or(BlockHash::all_zeros()))
     }
 
-    fn get_block(&self, block_hash: BlockHash) -> Result<Block, Self::Error> {
+    fn get_block(&self, block_hash: BlockHash) -> Result<Block> {
         let url = format!("{}/block/{}/raw", self.url, block_hash);
         let block = self.client.get(&url).send()?.bytes()?;
         Ok(consensus::deserialize::<Block>(&block).unwrap())
     }
 
-    fn get_transaction(&self, txid: bitcoin::Txid) -> Result<bitcoin::Transaction, Self::Error> {
+    fn get_transaction(&self, txid: bitcoin::Txid) -> Result<bitcoin::Transaction> {
         let url = format!("{}/tx/{}/raw", self.url, txid);
         let tx = self.client.get(&url).send()?.bytes()?;
         Ok(consensus::deserialize::<bitcoin::Transaction>(&tx).unwrap())
     }
 
-    fn get_block_height(&self, block_hash: BlockHash) -> Result<u32, Self::Error> {
+    fn get_block_height(&self, block_hash: BlockHash) -> Result<u32> {
         let url = format!("{}/block/{}", self.url, block_hash);
         let block = self.client.get(&url).send()?.text()?;
         let block: serde_json::Value = serde_json::from_str(&block)?;
         Ok(block["height"].as_u64().unwrap() as u32)
     }
 
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<bitcoin::BlockHeader, Self::Error> {
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<bitcoin::BlockHeader> {
         let url = format!("{}/block/{}/header", self.url, block_hash);
         let header = self.client.get(&url).send()?.text()?;
         let header: serde_json::Value = serde_json::from_str(&header)?;
@@ -62,16 +60,13 @@ impl Blockchain for EsploraBlockchain {
         Ok(consensus::deserialize::<bitcoin::BlockHeader>(&header).unwrap())
     }
 
-    fn get_block_count(&self) -> Result<u64, Self::Error> {
+    fn get_block_count(&self) -> Result<u64> {
         let url = format!("{}/blocks/tip/height", self.url);
         let height = self.client.get(&url).send()?.text()?;
         Ok(height.parse().unwrap())
     }
 
-    fn get_raw_transaction_info(
-        &self,
-        txid: &bitcoin::Txid,
-    ) -> Result<TransactionInfo, Self::Error> {
+    fn get_raw_transaction_info(&self, txid: &bitcoin::Txid) -> Result<TransactionInfo> {
         let client = Client::new();
         let url = format!("{}/tx/{}/status", self.url, txid);
         let tx = client.get(&url).send().unwrap().text().unwrap();

@@ -10,15 +10,15 @@ mod prove;
 mod prover;
 mod udata;
 
+use actix_rt::signal::ctrl_c;
+use anyhow::Result;
+use bitcoincore_rpc::{Auth, Client};
 use std::{
-    env,
+    env, fs,
     sync::{Arc, Mutex},
 };
 
-use actix_rt::signal::ctrl_c;
-#[cfg(not(feature = "esplora"))]
-use bitcoincore_rpc::{Auth, Client};
-
+use chaininterface::Blockchain;
 use futures::channel::mpsc::channel;
 use log::{info, warn};
 use prove::{BlocksFileManager, BlocksIndex};
@@ -27,10 +27,14 @@ use simplelog::{Config, SharedLogger};
 use crate::node::Node;
 
 fn main() -> anyhow::Result<()> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .create(subdir(""))
+        .unwrap();
+
     // Initialize the logger
-    // TODO: make this configurable
     init_logger(
-        Some(subdir!("debug.log")),
+        Some(&subdir("debug.log")),
         simplelog::LevelFilter::Info,
         true,
     );
@@ -39,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     // to keep track of the current chain state and speed up replying to headers requests
     // from peers.
     let store = kv::Store::new(kv::Config {
-        path: subdir!("chain_view").into(),
+        path: subdir("chain_view").into(),
         temporary: false,
         use_compression: false,
         flush_every_ms: None,
@@ -47,6 +51,8 @@ fn main() -> anyhow::Result<()> {
         segment_size: None,
     })
     .expect("Failed to open chainview database");
+    // Chainview is a collection of metadata about the chain, like tip and block
+    // indexes. It's stored in a key-value database.
     let view = chainview::ChainView::new(store);
     let view = Arc::new(view);
 
@@ -54,7 +60,7 @@ fn main() -> anyhow::Result<()> {
     // the blocks themselves
     let index_store = BlocksIndex {
         database: kv::Store::new(kv::Config {
-            path: subdir!("index/").into(),
+            path: subdir("index/").into(),
             temporary: false,
             use_compression: false,
             flush_every_ms: None,
@@ -70,27 +76,14 @@ fn main() -> anyhow::Result<()> {
     // and are serialized as bitcoin blocks, so we don't need to do any parsing
     // before sending to a peer.
     let blocks = Arc::new(Mutex::new(BlocksFileManager::new()));
+    // The prover needs some way to pull blocks from a trusted source, we can use anything
+    // implementing the [Blockchain] trait, for example a bitcoin core node or an esplora
+    // instance.
+    let client = get_chain_provider()?;
     // Create a prover, this module will download blocks from the bitcoin core
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
-    // Create a json-rpc client to bitcoin core
-    #[cfg(not(feature = "esplora"))]
-    let mut prover = {
-        let cookie = env!("HOME").to_owned() + "/.bitcoin/signet/.cookie";
-        let client = Client::new(
-            "localhost:38332".into(),
-            Auth::CookieFile(cookie.clone().into()),
-        )
-        .unwrap();
-
-        prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone())
-    };
-    #[cfg(feature = "esplora")]
-    let mut prover = {
-        let client = esplora::EsploraBlockchain::new("https://mempool.space/signet/api".into());
-        prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone())
-    };
-
+    let mut prover = prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone());
     info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
@@ -126,12 +119,13 @@ fn main() -> anyhow::Result<()> {
     prover.keep_up(kill_signal2, receiver)
 }
 
-macro_rules! subdir {
-    ($path:expr) => {
-        concat!(env!("HOME"), "/.bridge/", $path)
-    };
+fn subdir(path: &str) -> String {
+    let dir = env::var("DATA_DIR").unwrap_or_else(|_| {
+        let dir = env::var("HOME").expect("No $HOME env var?");
+        dir + "/.bridge"
+    });
+    dir + "/" + path
 }
-pub(crate) use subdir;
 
 fn init_logger(log_file: Option<&str>, log_level: log::LevelFilter, log_to_term: bool) {
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![];
@@ -157,4 +151,25 @@ fn init_logger(log_file: Option<&str>, log_level: log::LevelFilter, log_to_term:
         return;
     }
     let _ = simplelog::CombinedLogger::init(loggers);
+}
+
+fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
+    #[cfg(feature = "esplora")]
+    if let Ok(esplora_url) = env::var("ESPLORA_URL") {
+        return Ok(Box::new(esplora::EsploraBlockchain::new(esplora_url)));
+    }
+    let cookie = env::var("BITCOIN_CORE_COOKIE_FILE").unwrap_or_else(|_| {
+        env::var("HOME")
+            .map(|home| format!("{}/.bitcoin/signet/.cookie", home))
+            .expect("Failed to find $HOME")
+    });
+    let rpc_url = env::var("BITCOIN_CORE_RPC_URL").unwrap_or_else(|_| "localhost:38332".into());
+    let client = Client::new(&rpc_url, Auth::CookieFile(cookie.clone().into()));
+    match client {
+        Ok(client) => {
+            info!("Using bitcoin core at {}", rpc_url);
+            return Ok(Box::new(client));
+        }
+        Err(e) => Err(anyhow::anyhow!("Couldn't connect to bitcoin core: {e}")),
+    }
 }

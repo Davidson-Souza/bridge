@@ -81,7 +81,7 @@ impl BlocksFileManager {
     pub fn new() -> Self {
         std::fs::DirBuilder::new()
             .recursive(true) // If recursive is false, if the dir exists, it will fail.
-            .create(subdir!("blocks"))
+            .create(subdir("blocks"))
             .unwrap();
         Self {
             open_files: Vec::new(),
@@ -90,7 +90,7 @@ impl BlocksFileManager {
         }
     }
     pub fn get_file(&mut self, file: u32) -> &mut BlockFile {
-        let file_name = format!("{}/blocks-{}.dat", subdir!("blocks"), file);
+        let file_name = format!("{}/blocks-{}.dat", subdir("blocks"), file);
         if let Some(index) = self.open_files_cache.get(&file_name) {
             return &mut self.open_files[*index];
         }
