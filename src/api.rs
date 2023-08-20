@@ -6,7 +6,8 @@ use std::str::FromStr;
 
 use crate::prover::{Requests, Responses};
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use bitcoin::Txid;
+use bitcoin::{consensus::deserialize, network::utreexo::UtreexoBlock, Block, Txid};
+use bitcoin_hashes::Hash;
 use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::{channel::mpsc::Sender, lock::Mutex, SinkExt};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
@@ -97,7 +98,8 @@ async fn get_block_by_height(height: web::Path<u32>, data: web::Data<AppState>) 
     let res = perform_request(&data, Requests::GetBlockByHeight(height)).await;
     match res {
         Ok(Responses::Block(block)) => {
-            HttpResponse::Ok().json(json!({ "error": null, "data": hex::encode(block) }))
+            let block: UBlock = deserialize::<UtreexoBlock>(&block).unwrap().into();
+            HttpResponse::Ok().json(json!({ "error": null, "data": block}))
         }
         Ok(_) => HttpResponse::InternalServerError().json(json!({
             "error": "Invalid response from backend",
@@ -170,5 +172,59 @@ impl From<Proof> for JsonProof {
             hashes.push(hash.to_string());
         }
         JsonProof { targets, hashes }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct UBlock {
+    block: Block,
+    proof: JsonProof,
+    leaf_data: Vec<LeafData>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct LeafData {
+    /// Header code tells the height of creating for this UTXO and whether it's a coinbase
+    pub header_code: u32,
+    /// The amount locked in this UTXO
+    pub amount: u64,
+    /// The type of the locking script for this UTXO
+    pub spk_ty: ScriptPubkeyType,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub enum ScriptPubkeyType {
+    /// An non-specified type, in this case the script is just copied over
+    Other(Box<[u8]>),
+    /// p2pkh
+    PubKeyHash,
+    /// p2wsh
+    WitnessV0PubKeyHash,
+    /// p2sh
+    ScriptHash,
+    /// p2wsh
+    WitnessV0ScriptHash,
+}
+impl From<UtreexoBlock> for UBlock {
+    fn from(block: UtreexoBlock) -> Self {
+        let proof = block.udata.as_ref().unwrap().proof.clone();
+        let proof = Proof {
+            hashes: proof
+                .hashes
+                .iter()
+                .map(|x| NodeHash::from(x.as_inner()))
+                .collect(),
+            targets: proof.targets.iter().map(|x| x.0).collect(),
+        }
+        .into();
+
+        let leaves = block.udata.clone().unwrap().leaves.clone();
+        let block = block.block;
+
+        let leaf_data = unsafe { std::mem::transmute(leaves) };
+        Self {
+            block,
+            proof,
+            leaf_data,
+        }
     }
 }

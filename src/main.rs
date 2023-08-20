@@ -87,7 +87,13 @@ fn main() -> anyhow::Result<()> {
     info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.
-    let listener = std::net::TcpListener::bind("0.0.0.0:28333").unwrap();
+    let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "8333".into());
+    let p2p_address = format!(
+        "{}:{}",
+        env::var("P2P_HOST").unwrap_or_else(|_| "0.0.0.0".into()),
+        p2p_port
+    );
+    let listener = std::net::TcpListener::bind(p2p_address).unwrap();
     let node = node::Node::new(listener, blocks, index_store, view);
     std::thread::spawn(move || {
         Node::accept_connections(node);
@@ -158,12 +164,31 @@ fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
     if let Ok(esplora_url) = env::var("ESPLORA_URL") {
         return Ok(Box::new(esplora::EsploraBlockchain::new(esplora_url)));
     }
+    let rpc_url = env::var("BITCOIN_CORE_RPC_URL").unwrap_or_else(|_| "localhost:8332".into());
+    // try to use username and password auth first
+    if let Ok(username) = env::var("BITCOIN_CORE_RPC_USER") {
+        let password = env::var("BITCOIN_CORE_RPC_PASSWORD").map_err(|_| {
+            anyhow::anyhow!("BITCOIN_CORE_RPC_PASSWORD must be set if BITCOIN_CORE_RPC_USER is set")
+        })?;
+        info!(
+            "Using bitcoin core at {} with username {}",
+            rpc_url, username
+        );
+        let client = Client::new(&rpc_url, Auth::UserPass(username, password));
+        match client {
+            Ok(client) => {
+                return Ok(Box::new(client));
+            }
+            Err(e) => return Err(anyhow::anyhow!("Couldn't connect to bitcoin core: {e}")),
+        }
+    }
+    // fallback to cookie auth. This is the default for core, but discouraged for security reasons
     let cookie = env::var("BITCOIN_CORE_COOKIE_FILE").unwrap_or_else(|_| {
         env::var("HOME")
-            .map(|home| format!("{}/.bitcoin/signet/.cookie", home))
+            .map(|home| format!("{}/.bitcoin/.cookie", home))
             .expect("Failed to find $HOME")
     });
-    let rpc_url = env::var("BITCOIN_CORE_RPC_URL").unwrap_or_else(|_| "localhost:38332".into());
+    info!("Using cookie file at {}", cookie);
     let client = Client::new(&rpc_url, Auth::CookieFile(cookie.clone().into()));
     match client {
         Ok(client) => {

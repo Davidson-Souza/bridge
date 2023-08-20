@@ -38,12 +38,13 @@ pub struct BlockFile {
 
 impl BlockFile {
     /// Creates a new proof file.
-    pub fn new(file: File) -> Self {
+    pub fn new(mut file: File) -> Self {
+        let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
         Self {
             file,
             id: 0,
             _size: 0,
-            index: 0,
+            index: offset as u32,
         }
     }
 
@@ -73,8 +74,6 @@ pub struct BlocksFileManager {
     open_files: Vec<BlockFile>,
     /// Maps a file name to the index of the file in the open_files vector.
     open_files_cache: HashMap<String, usize>,
-    /// The number of files we have.
-    files: u32,
 }
 
 impl BlocksFileManager {
@@ -86,7 +85,6 @@ impl BlocksFileManager {
         Self {
             open_files: Vec::new(),
             open_files_cache: HashMap::new(),
-            files: 0,
         }
     }
     pub fn get_file(&mut self, file: u32) -> &mut BlockFile {
@@ -115,10 +113,9 @@ impl BlocksFileManager {
     pub fn append(&mut self, block: &Block, height: usize) -> BlockIndex {
         let file_number = height as u32 / PROOFS_PER_FILE as u32;
         let file = self.get_file(file_number);
+
         let mut index = file.append(block);
         index.file = file_number;
-
-        self.files += 1;
         index
     }
 }

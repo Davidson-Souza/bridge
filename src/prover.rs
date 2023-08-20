@@ -59,7 +59,7 @@ impl Prover {
     ) -> Prover {
         let height = index_database.load_height() as u32;
         info!("Loaded height {}", height);
-        print!("Loading accumulator data...");
+        info!("Loading accumulator data...");
         let acc = Self::try_from_disk();
         Self {
             rpc,
@@ -215,6 +215,7 @@ impl Prover {
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
             let block_hash = self.rpc.get_block_hash(height as u64).unwrap();
+            // Update the local index
             self.view.save_block_hash(height, block_hash)?;
             self.view.save_height(block_hash, height)?;
             let block = self.rpc.get_block(block_hash).unwrap();
