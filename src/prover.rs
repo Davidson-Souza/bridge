@@ -13,7 +13,7 @@ use bitcoin::{
 use bitcoin_hashes::Hash;
 use futures::channel::mpsc::Receiver;
 use log::info;
-use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof};
+use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof, stump::Stump};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -89,7 +89,7 @@ impl Prover {
     fn handle_request(&mut self, req: Requests) -> anyhow::Result<Responses> {
         match req {
             Requests::GetProof(node) => {
-                let (proof, _) = self
+                let proof = self
                     .acc
                     .prove(&[node])
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -149,7 +149,7 @@ impl Prover {
                     })
                     .filter(|x| self.acc.prove(&[x.get_leaf_hashes()]).is_ok())
                     .collect();
-                let (proof, _) = self
+                let proof = self
                     .acc
                     .prove(
                         &hashes
@@ -159,6 +159,11 @@ impl Prover {
                     )
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 Ok(Responses::Transaction((tx, proof)))
+            }
+            Requests::GetCSN => {
+                let roots = self.acc.get_roots().iter().map(|x| x.get_data()).collect();
+                let leaves = self.acc.leaves;
+                Ok(Responses::CSN(Stump { roots, leaves }))
             }
         }
     }
@@ -194,16 +199,19 @@ impl Prover {
             }
             if let Ok(Some((req, res))) = receiver.try_next() {
                 let ret = self.handle_request(req).map_err(|e| e.to_string());
-                res.send(ret).unwrap();
+                res.send(ret)
+                    .map_err(|_| anyhow::anyhow!("Error sending response"))?;
             }
             if last_tip_update.elapsed().as_secs() > 10 {
-                let height = self.rpc.get_block_count().unwrap() as u32;
+                let height = self.rpc.get_block_count()? as u32;
                 if height > self.height {
-                    self.prove_range(self.height + 1, height)?;
-                    self.height = height;
+                    if let Err(e) = self.prove_range(self.height + 1, height) {
+                        log::error!("Error while proving range: {}", e);
+                        continue;
+                    };
                     self.save_to_disk();
+                    self.storage.update_height(height as usize);
                 }
-                self.storage.update_height(height as usize);
                 last_tip_update = std::time::Instant::now();
             }
 
@@ -214,11 +222,12 @@ impl Prover {
     /// Proves a range of blocks, may be just one block.
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
-            let block_hash = self.rpc.get_block_hash(height as u64).unwrap();
+            let block_hash = self.rpc.get_block_hash(height as u64)?;
             // Update the local index
             self.view.save_block_hash(height, block_hash)?;
             self.view.save_height(block_hash, height)?;
-            let block = self.rpc.get_block(block_hash).unwrap();
+
+            let block = self.rpc.get_block(block_hash)?;
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
             info!("Proving block {}", height);
@@ -234,6 +243,7 @@ impl Prover {
             };
             let index = self.files.lock().unwrap().append(&block, height as usize);
             self.storage.append(index, block.block.block_hash());
+            self.height = height;
         }
         anyhow::Ok(())
     }
@@ -344,7 +354,7 @@ impl Prover {
             }
         }
 
-        let (proof, _) = self.acc.prove(&inputs).unwrap();
+        let proof = self.acc.prove(&inputs).unwrap();
         self.acc.modify(&utxos, &inputs).unwrap();
         (
             BatchProof {
@@ -371,6 +381,8 @@ pub enum Requests {
     GetBlockByHeight(u32),
     /// Returns a transaction and a proof for all inputs
     GetTransaction(Txid),
+    /// Returns the CSN of the current acc
+    GetCSN,
 }
 /// All responses the prover will send.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -381,5 +393,8 @@ pub enum Responses {
     Roots(Vec<NodeHash>),
     /// A block and the utreexo data for it, serialized.
     Block(Vec<u8>),
+    /// A transaction and a proof for all **outputs**
     Transaction((Transaction, Proof)),
+    /// The CSN of the current acc
+    CSN(Stump),
 }

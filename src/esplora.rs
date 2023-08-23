@@ -36,54 +36,60 @@ impl Blockchain for EsploraBlockchain {
     fn get_block(&self, block_hash: BlockHash) -> Result<Block> {
         let url = format!("{}/block/{}/raw", self.url, block_hash);
         let block = self.client.get(&url).send()?.bytes()?;
-        Ok(consensus::deserialize::<Block>(&block).unwrap())
+        Ok(consensus::deserialize::<Block>(&block)?)
     }
 
     fn get_transaction(&self, txid: bitcoin::Txid) -> Result<bitcoin::Transaction> {
         let url = format!("{}/tx/{}/raw", self.url, txid);
         let tx = self.client.get(&url).send()?.bytes()?;
-        Ok(consensus::deserialize::<bitcoin::Transaction>(&tx).unwrap())
+        Ok(consensus::deserialize::<bitcoin::Transaction>(&tx)?)
     }
 
     fn get_block_height(&self, block_hash: BlockHash) -> Result<u32> {
         let url = format!("{}/block/{}", self.url, block_hash);
         let block = self.client.get(&url).send()?.text()?;
         let block: serde_json::Value = serde_json::from_str(&block)?;
-        Ok(block["height"].as_u64().unwrap() as u32)
+        let Some(height) = block["height"].as_u64() else {
+            return Err(anyhow::anyhow!("No header found"));
+        };
+        Ok(height as u32)
     }
 
     fn get_block_header(&self, block_hash: BlockHash) -> Result<bitcoin::BlockHeader> {
         let url = format!("{}/block/{}/header", self.url, block_hash);
         let header = self.client.get(&url).send()?.text()?;
         let header: serde_json::Value = serde_json::from_str(&header)?;
-        let header = hex::decode(header["hex"].as_str().unwrap())?;
+        let Some(header) = header["hex"].as_str() else {
+            return Err(anyhow::anyhow!("No header found"));
+        };
+        let header = hex::decode(header)?;
         Ok(consensus::deserialize::<bitcoin::BlockHeader>(&header).unwrap())
     }
 
     fn get_block_count(&self) -> Result<u64> {
         let url = format!("{}/blocks/tip/height", self.url);
         let height = self.client.get(&url).send()?.text()?;
-        Ok(height.parse().unwrap())
+        Ok(height.parse()?)
     }
 
     fn get_raw_transaction_info(&self, txid: &bitcoin::Txid) -> Result<TransactionInfo> {
         let client = Client::new();
         let url = format!("{}/tx/{}/status", self.url, txid);
-        let tx = client.get(&url).send().unwrap().text().unwrap();
-        let tx: serde_json::Value = serde_json::from_str(&tx).unwrap();
+        let tx = client.get(&url).send()?.text()?;
+        let tx: serde_json::Value = serde_json::from_str(&tx)?;
 
         let tx_hex = client
             .get(&format!("{}/tx/{}/hex", self.url, txid))
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-
+            .send()?
+            .text()?;
         Ok(TransactionInfo {
             is_coinbase: tx["vin"][0]["coinbase"].as_str().is_some(),
-            blockhash: Some(tx["block_hash"].as_str().unwrap().parse().unwrap()),
-            height: tx["block_height"].as_u64().unwrap() as u32,
-            tx: consensus::deserialize(&hex::decode(tx_hex).unwrap()).unwrap(),
+            blockhash: tx["block_hash"]
+                .as_str()
+                .and_then(|hash| Some(hash.parse()))
+                .transpose()?,
+            height: tx["block_height"].as_u64().unwrap_or(0) as u32,
+            tx: consensus::deserialize(&hex::decode(tx_hex)?)?,
         })
     }
 }

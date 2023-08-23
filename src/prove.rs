@@ -17,6 +17,7 @@ use bitcoin::{
     network::utreexo::UtreexoBlock as Block,
     BlockHash,
 };
+use log::info;
 /// The number of proofs we save in each file.
 const PROOFS_PER_FILE: usize = 1000;
 
@@ -91,6 +92,11 @@ impl BlocksFileManager {
         let file_name = format!("{}/blocks-{}.dat", subdir("blocks"), file);
         if let Some(index) = self.open_files_cache.get(&file_name) {
             return &mut self.open_files[*index];
+        }
+        if self.open_files.len() >= 5 {
+            info!("Releasing file {}", format!("{}/blocks-{}.dat", subdir("blocks"), file));
+
+            self.open_files.remove(self.open_files.len() - 1);
         }
         let file = OpenOptions::new()
             .write(true)
