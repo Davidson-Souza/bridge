@@ -5,6 +5,7 @@ mod chaininterface;
 mod chainview;
 #[cfg(feature = "esplora")]
 mod esplora;
+mod leaf_cache;
 mod node;
 mod prove;
 mod prover;
@@ -24,7 +25,7 @@ use log::{info, warn};
 use prove::{BlocksFileManager, BlocksIndex};
 use simplelog::{Config, SharedLogger};
 
-use crate::node::Node;
+use crate::{leaf_cache::DiskLeafStorage, node::Node};
 
 fn main() -> anyhow::Result<()> {
     fs::DirBuilder::new()
@@ -38,8 +39,6 @@ fn main() -> anyhow::Result<()> {
         simplelog::LevelFilter::Info,
         true,
     );
-    // let client = esplora::EsploraBlockchain::new("https://mempool.space/signet/api".into());
-    // Create a chainview, this module will download headers from the bitcoin core
     // to keep track of the current chain state and speed up replying to headers requests
     // from peers.
     let store = kv::Store::new(kv::Config {
@@ -83,7 +82,14 @@ fn main() -> anyhow::Result<()> {
     // Create a prover, this module will download blocks from the bitcoin core
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
-    let mut prover = prover::Prover::new(client, index_store.clone(), blocks.clone(), view.clone());
+    let leaf_data = DiskLeafStorage::new(&subdir("leaf_data"));
+    let mut prover = prover::Prover::new(
+        client,
+        index_store.clone(),
+        blocks.clone(),
+        view.clone(),
+        leaf_data,
+    );
     info!("Starting p2p node");
     // This is our implementation of the Bitcoin p2p protocol, it will listen
     // for incoming connections and serve blocks and proofs to peers.

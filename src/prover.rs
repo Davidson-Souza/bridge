@@ -12,7 +12,7 @@ use bitcoin::{
 };
 use bitcoin_hashes::Hash;
 use futures::channel::mpsc::Receiver;
-use log::info;
+use log::{info, error};
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof, stump::Stump};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -26,9 +26,20 @@ use crate::{
     prove::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
-
+pub trait LeafCache: Sync + Send + Sized + 'static {
+    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData>;
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData);
+}
+impl LeafCache for HashMap<OutPoint, LeafData> {
+    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData> {
+        self.remove(outpoint)
+    }
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) {
+        self.insert(outpoint, leaf_data);
+    }
+}
 /// All the state that the prover needs to keep track of
-pub struct Prover {
+pub struct Prover<LeafStorage: LeafCache> {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
     files: Arc<Mutex<BlocksFileManager>>,
     /// A reference to the RPC client that is used to query the blockchain.
@@ -46,17 +57,18 @@ pub struct Prover {
     /// A map that keeps track of the leaf data for each outpoint. This is used to generate
     /// proofs for the utreexo accumulator. This is more like a cache, since it won't be
     /// persisted on shutdown.
-    leaf_data: HashMap<OutPoint, LeafData>,
+    leaf_data: LeafStorage,
 }
 
-impl Prover {
+impl<LeafStorage: LeafCache> Prover<LeafStorage> {
     /// Creates a new prover. It loads the accumulator from disk, if it exists.
     pub fn new(
         rpc: Box<dyn Blockchain>,
         index_database: Arc<BlocksIndex>,
         files: Arc<Mutex<BlocksFileManager>>,
         view: Arc<chainview::ChainView>,
-    ) -> Prover {
+        leaf_data: LeafStorage,
+    ) -> Prover<LeafStorage> {
         let height = index_database.load_height() as u32;
         info!("Loaded height {}", height);
         info!("Loading accumulator data...");
@@ -68,7 +80,7 @@ impl Prover {
             storage: index_database,
             files,
             view,
-            leaf_data: HashMap::new(),
+            leaf_data,
         }
     }
     /// Tries to load the accumulator from disk. If it fails, it creates a new one.
@@ -194,6 +206,7 @@ impl Prover {
         let mut last_tip_update = std::time::Instant::now();
         loop {
             if *stop.lock().unwrap() {
+                info!("Shutting down prover");
                 self.shutdown();
                 break;
             }
@@ -203,20 +216,26 @@ impl Prover {
                     .map_err(|_| anyhow::anyhow!("Error sending response"))?;
             }
             if last_tip_update.elapsed().as_secs() > 10 {
-                let height = self.rpc.get_block_count()? as u32;
-                if height > self.height {
-                    if let Err(e) = self.prove_range(self.height + 1, height) {
-                        log::error!("Error while proving range: {}", e);
-                        continue;
-                    };
-                    self.save_to_disk();
-                    self.storage.update_height(height as usize);
+                if let Err(e) = self.check_tip(&mut last_tip_update) {
+                    error!("Error checking tip: {}", e);
+                    continue;
                 }
-                last_tip_update = std::time::Instant::now();
             }
 
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
+        println!("Prover stopped");
+        Ok(())
+    }
+    fn check_tip(&mut self, last_tip_update: &mut std::time::Instant) -> anyhow::Result<()> {
+        let height = self.rpc.get_block_count()? as u32;
+        if height > self.height {
+            self.prove_range(self.height + 1, self.height + 10_000)?;
+
+            self.save_to_disk();
+            self.storage.update_height(height as usize);
+        }
+        *last_tip_update = std::time::Instant::now();
         Ok(())
     }
     /// Proves a range of blocks, may be just one block.
@@ -276,7 +295,7 @@ impl Prover {
             height << 1
         };
         Some(LeafData {
-            block_hash: tx_info.blockhash.unwrap(),
+            block_hash: tx_info.blockhash?,
             header_code,
             prevout: OutPoint {
                 txid: input.previous_output.txid,
@@ -286,7 +305,7 @@ impl Prover {
         })
     }
     fn get_full_input_leaf_data(
-        leaf_data: &mut HashMap<OutPoint, LeafData>,
+        leaf_data: &mut LeafStorage,
         input: &TxIn,
         rpc: &Box<dyn Blockchain>,
     ) -> Option<LeafData> {

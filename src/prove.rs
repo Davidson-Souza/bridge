@@ -18,8 +18,8 @@ use bitcoin::{
     BlockHash,
 };
 use log::info;
-/// The number of proofs we save in each file.
-const PROOFS_PER_FILE: usize = 1000;
+/// The number of blocks we save in each file.
+const PROOFS_PER_FILE: usize = 10_000;
 
 /// Points to a proof in the file.
 #[derive(Debug, Clone, Copy)]
