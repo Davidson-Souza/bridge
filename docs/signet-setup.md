@@ -29,6 +29,24 @@ some environment variables, the available variables are:
  - RPC_USER: The username that will be used to authenticate RPC requests (default: user)
  - RPC_PASSWORD: The password that will be used to authenticate RPC requests (default: password)
 
+You can change the environment variables by creating a `.env` file in the same
+directory as the compose file and setting the variables there. For example:
+
+```bash
+export API_PORT=8080
+export P2P_PORT=8333
+export RPC_PORT=38332
+export RPC_USER=user
+export RPC_PASSWORD=password
+```
+
+and then running:
+
+```bash
+$ source .env
+$ docker-compose up
+```
+
 ## Troubleshooting
 
 If you are having problems with the bridge, you can check the logs by running:

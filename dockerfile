@@ -17,4 +17,4 @@ VOLUME /app/data
 
 ENV DATA_DIR=/app/data
 
-CMD ["./bridge"]
+CMD ["/app/bridge"]
