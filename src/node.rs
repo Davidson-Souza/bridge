@@ -191,7 +191,7 @@ impl Peer {
                             sender: version.receiver,
                             nonce: version.nonce + 100,
                             user_agent: "/rustreexo:0.1.0/bridge:0.1.0".to_string(),
-                            start_height: 0,
+                            start_height: 800_000,
                             relay: false,
                         },
                     ),

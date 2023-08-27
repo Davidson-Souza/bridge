@@ -1,2 +1,5 @@
 /target
 .env
+bridge/
+backend/
+bitcoind/

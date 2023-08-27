@@ -230,7 +230,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
     fn check_tip(&mut self, last_tip_update: &mut std::time::Instant) -> anyhow::Result<()> {
         let height = self.rpc.get_block_count()? as u32;
         if height > self.height {
-            self.prove_range(self.height + 1, self.height + 10_000)?;
+            self.prove_range(self.height + 1, self.height + 100_000)?;
 
             self.save_to_disk();
             self.storage.update_height(height as usize);

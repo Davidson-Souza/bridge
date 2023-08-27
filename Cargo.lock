@@ -44,6 +44,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-cors"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b340e9cfa5b08690aae90fb61beb44e9b06f44fe3d0f93781aaa58cfba86245e"
+dependencies = [
+ "actix-utils",
+ "actix-web",
+ "derive_more",
+ "futures-util",
+ "log",
+ "once_cell",
+ "smallvec",
+]
+
+[[package]]
 name = "actix-files"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -525,9 +540,10 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "actix",
+ "actix-cors",
  "actix-files",
  "actix-rt",
  "actix-session",
@@ -1582,8 +1598,7 @@ dependencies = [
 [[package]]
 name = "rustreexo"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4852cab7dec3e1d89bb3ce30ca3461f7d6baee2143d0460c07bf1a718af68997"
+source = "git+https://github.com/mit-dci/rustreexo#2b865d3c6ff178da4f589e82d6f8f4a23e5042e0"
 dependencies = [
  "bitcoin_hashes 0.12.0",
  "serde",

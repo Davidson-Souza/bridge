@@ -5,6 +5,7 @@
 use std::str::FromStr;
 
 use crate::prover::{Requests, Responses};
+use actix_cors::Cors;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use bitcoin::{consensus::deserialize, network::utreexo::UtreexoBlock, Block, Txid};
 use bitcoin_hashes::Hash;
@@ -12,7 +13,6 @@ use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::{channel::mpsc::Sender, lock::Mutex, SinkExt};
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
 use serde::{Deserialize, Serialize};
-
 /// This is the state of the actix-web server that will be passed as reference by each
 /// callback function. It contains a sender that can be used to send requests to the prover.
 struct AppState {
@@ -111,6 +111,24 @@ async fn get_block_by_height(height: web::Path<u32>, data: web::Data<AppState>) 
         })),
     }
 }
+/// Same as `get_roots`, but returns the leaf number of the accumulator too.
+async fn get_roots_with_leaf(data: web::Data<AppState>) -> Result<HttpResponse, actix_web::Error> {
+    let res = perform_request(&data, Requests::GetCSN).await;
+    match res {
+        Ok(Responses::CSN(acc)) => Ok(HttpResponse::Ok().json(json!({
+            "error": null,
+            "data": acc
+        }))),
+        Ok(_) => Ok(HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response",
+            "data": null
+        }))),
+        Err(e) => Ok(HttpResponse::NotAcceptable().json(json!({
+            "error": e,
+            "data": null
+        }))),
+    }
+}
 /// The handler for the `/roots` endpoint. It returns the roots of the accumulator.
 async fn get_roots(data: web::Data<AppState>) -> HttpResponse {
     let res = perform_request(&data, Requests::GetRoots).await;
@@ -145,12 +163,15 @@ pub async fn create_api(
         sender: Mutex::new(request),
     });
     HttpServer::new(move || {
+        let cors = Cors::permissive();
         App::new()
+            .wrap(cors)
             .app_data(app_state.clone())
             .route("/prove/{leaf}", web::get().to(get_proof))
             .route("/roots", web::get().to(get_roots))
             .route("/block/{height}", web::get().to(get_block_by_height))
             .route("/tx/{hash}/outputs", web::get().to(get_transaction))
+            .route("/acc", web::get().to(get_roots_with_leaf))
     })
     .bind("0.0.0.0:8080")?
     .run()
