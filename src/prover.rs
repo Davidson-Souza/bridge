@@ -12,7 +12,7 @@ use bitcoin::{
 };
 use bitcoin_hashes::Hash;
 use futures::channel::mpsc::Receiver;
-use log::{info, error};
+use log::{error, info};
 use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof, stump::Stump};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -224,13 +224,14 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
-        println!("Prover stopped");
+        self.save_to_disk();
+        self.storage.update_height(self.height as usize);
         Ok(())
     }
     fn check_tip(&mut self, last_tip_update: &mut std::time::Instant) -> anyhow::Result<()> {
         let height = self.rpc.get_block_count()? as u32;
         if height > self.height {
-            self.prove_range(self.height + 1, self.height + 100_000)?;
+            self.prove_range(self.height + 1, height)?;
 
             self.save_to_disk();
             self.storage.update_height(height as usize);
