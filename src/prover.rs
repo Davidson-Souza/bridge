@@ -23,7 +23,7 @@ use std::{
 use crate::{
     chaininterface::Blockchain,
     chainview,
-    prove::{BlocksFileManager, BlocksIndex},
+    blockfile::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
 pub trait LeafCache: Sync + Send + Sized + 'static {

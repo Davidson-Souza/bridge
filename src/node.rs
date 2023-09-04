@@ -20,7 +20,7 @@ use log::info;
 
 use crate::{
     chainview::ChainView,
-    prove::{BlocksFileManager, BlocksIndex},
+    blockfile::{BlocksFileManager, BlocksIndex},
 };
 
 pub struct Node {

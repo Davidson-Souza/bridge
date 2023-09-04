@@ -7,7 +7,7 @@ mod chainview;
 mod esplora;
 mod leaf_cache;
 mod node;
-mod prove;
+mod blockfile;
 mod prover;
 mod udata;
 
@@ -22,7 +22,7 @@ use std::{
 use chaininterface::Blockchain;
 use futures::channel::mpsc::channel;
 use log::{info, warn};
-use prove::{BlocksFileManager, BlocksIndex};
+use blockfile::{BlocksFileManager, BlocksIndex};
 use simplelog::{Config, SharedLogger};
 
 use crate::{leaf_cache::DiskLeafStorage, node::Node};
