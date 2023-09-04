@@ -1,10 +1,10 @@
-FROM rust:latest as build
+FROM rust:slim-bullseye as build
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release
 
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 WORKDIR /app
 
