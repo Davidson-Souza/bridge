@@ -111,6 +111,28 @@ async fn get_block_by_height(height: web::Path<u32>, data: web::Data<AppState>) 
         })),
     }
 }
+// Returns n blocks starting from the given height
+async fn get_n_blocks(height: web::Path<(u32, u32)>, data: web::Data<AppState>) -> impl Responder {
+    let (height, n) = height.into_inner();
+    let res = perform_request(&data, Requests::GetBlocksByHeight(height, n)).await;
+    match res {
+        Ok(Responses::Blocks(blocks)) => {
+            let blocks: Vec<UBlock> = blocks
+                .into_iter()
+                .map(|block| deserialize::<UtreexoBlock>(&block).unwrap().into())
+                .collect();
+            HttpResponse::Ok().json(json!({ "error": null, "data": blocks}))
+        }
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response from backend",
+            "data": null
+        })),
+        Err(e) => HttpResponse::NotAcceptable().json(json!({
+            "error": e,
+            "data": null
+        })),
+    }
+}
 /// Same as `get_roots`, but returns the leaf number of the accumulator too.
 async fn get_roots_with_leaf(data: web::Data<AppState>) -> Result<HttpResponse, actix_web::Error> {
     let res = perform_request(&data, Requests::GetCSN).await;
@@ -172,6 +194,7 @@ pub async fn create_api(
             .route("/block/{height}", web::get().to(get_block_by_height))
             .route("/tx/{hash}/outputs", web::get().to(get_transaction))
             .route("/acc", web::get().to(get_roots_with_leaf))
+            .route("/batch_block/{height}/{n}", web::get().to(get_n_blocks))
     })
     .bind("0.0.0.0:8080")?
     .run()

@@ -177,6 +177,27 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                 let leaves = self.acc.leaves;
                 Ok(Responses::CSN(Stump { roots, leaves }))
             }
+            Requests::GetBlocksByHeight(height, count) => {
+                let mut blocks = Vec::new();
+                for i in height..height + count {
+                    let Some(hash) = self
+                        .view
+                        .get_block_hash(i)? else { break };
+                    let block = self.storage.get_index(hash).ok_or(anyhow::anyhow!(
+                        "Block at height {} not found in storage",
+                        i
+                    ))?;
+
+                    let block = self
+                        .files
+                        .lock()
+                        .unwrap()
+                        .get_block(block)
+                        .ok_or(anyhow::anyhow!("Block at height {} not found in files", i))?;
+                    blocks.push(serialize(&block));
+                }
+                Ok(Responses::Blocks(blocks))
+            }
         }
     }
     /// Gracefully shuts down the prover. It saves the accumulator to disk and flushes the chainview.
@@ -403,6 +424,8 @@ pub enum Requests {
     GetTransaction(Txid),
     /// Returns the CSN of the current acc
     GetCSN,
+    /// Returns multiple blocks and utreexo data for them.
+    GetBlocksByHeight(u32, u32),
 }
 /// All responses the prover will send.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -417,4 +440,6 @@ pub enum Responses {
     Transaction((Transaction, Proof)),
     /// The CSN of the current acc
     CSN(Stump),
+    /// Multiple blocks and utreexo data for them.
+    Blocks(Vec<Vec<u8>>),
 }
