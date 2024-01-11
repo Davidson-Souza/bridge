@@ -155,8 +155,12 @@ impl Peer {
                 let height = height + 1;
 
                 for h in height..(height + 2_000) {
-                    let Ok(Some(block_hash)) = self.chainview.get_block_hash(h) else {break};
-                    let Ok(Some(header_info)) = self.chainview.get_block(block_hash) else {break};
+                    let Ok(Some(block_hash)) = self.chainview.get_block_hash(h) else {
+                        break;
+                    };
+                    let Ok(Some(header_info)) = self.chainview.get_block(block_hash) else {
+                        break;
+                    };
 
                     let header = deserialize(&header_info).unwrap();
                     headers.push(header);

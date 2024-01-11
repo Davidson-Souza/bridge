@@ -26,18 +26,26 @@ use crate::{
     blockfile::{BlocksFileManager, BlocksIndex},
     udata::LeafData,
 };
+
 pub trait LeafCache: Sync + Send + Sized + 'static {
     fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData>;
-    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData);
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) -> bool;
+    fn flush(&mut self) {}
+    fn cache_size(&self) -> usize {
+        0
+    }
 }
+
 impl LeafCache for HashMap<OutPoint, LeafData> {
     fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData> {
         self.remove(outpoint)
     }
-    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) {
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) -> bool {
         self.insert(outpoint, leaf_data);
+        false
     }
 }
+
 /// All the state that the prover needs to keep track of
 pub struct Prover<LeafStorage: LeafCache> {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
@@ -180,9 +188,9 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             Requests::GetBlocksByHeight(height, count) => {
                 let mut blocks = Vec::new();
                 for i in height..height + count {
-                    let Some(hash) = self
-                        .view
-                        .get_block_hash(i)? else { break };
+                    let Some(hash) = self.view.get_block_hash(i)? else {
+                        break;
+                    };
                     let block = self.storage.get_index(hash).ok_or(anyhow::anyhow!(
                         "Block at height {} not found in storage",
                         i
@@ -200,11 +208,14 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             }
         }
     }
+
     /// Gracefully shuts down the prover. It saves the accumulator to disk and flushes the chainview.
     fn shutdown(&mut self) {
         self.save_to_disk();
+        self.leaf_data.flush();
         self.view.flush();
     }
+
     /// Saves the accumulator to disk. This is done by serializing the accumulator to a file,
     /// the serialization is done by the rustreexo library and is a depth first traversal of the
     /// tree.
@@ -213,6 +224,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
         let mut writer = std::io::BufWriter::new(file);
         self.acc.serialize(&mut writer).unwrap();
     }
+
     /// A infinite loop that keeps the prover up to date with the blockchain. It handles requests
     /// from other modules and updates the accumulator when a new block is found. This method is
     /// also how we create proofs for historical blocks.
@@ -249,6 +261,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
         self.storage.update_height(self.height as usize);
         Ok(())
     }
+
     fn check_tip(&mut self, last_tip_update: &mut std::time::Instant) -> anyhow::Result<()> {
         let height = self.rpc.get_block_count()? as u32;
         if height > self.height {
@@ -260,6 +273,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
         *last_tip_update = std::time::Instant::now();
         Ok(())
     }
+
     /// Proves a range of blocks, may be just one block.
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
@@ -271,7 +285,13 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             let block = self.rpc.get_block(block_hash)?;
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
-            info!("Proving block {}", height);
+
+            info!(
+                "processing height={} cache={} txs={}",
+                height,
+                self.leaf_data.cache_size(),
+                block.txdata.len()
+            );
 
             let (proof, leaves) = self.process_block(&block, height);
             let block = bitcoin::network::utreexo::UtreexoBlock {
@@ -288,6 +308,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
         }
         anyhow::Ok(())
     }
+
     /// Returns what spk type this output is. We need this to build a compact leaf data.
     fn get_spk_type(spk: &Script) -> ScriptPubkeyType {
         if spk.is_p2pkh() {
@@ -302,6 +323,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             ScriptPubkeyType::Other(spk.to_bytes().into_boxed_slice())
         }
     }
+
     /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
@@ -384,13 +406,19 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                         utxo: output.to_owned(),
                     };
                     utxos.push(leaf.get_leaf_hashes());
-                    self.leaf_data.insert(
+                    let flush = self.leaf_data.insert(
                         OutPoint {
                             txid,
                             vout: idx as u32,
                         },
                         leaf,
                     );
+
+                    if flush {
+                        self.leaf_data.flush();
+                        self.save_to_disk();
+                        self.storage.update_height(self.height as usize);
+                    }
                 }
             }
         }

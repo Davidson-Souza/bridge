@@ -83,6 +83,7 @@ fn main() -> anyhow::Result<()> {
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
     let leaf_data = DiskLeafStorage::new(&subdir("leaf_data"));
+    //let leaf_data = HashMap::new();
     let mut prover = prover::Prover::new(
         client,
         index_store.clone(),

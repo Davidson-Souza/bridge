@@ -68,7 +68,10 @@ impl Decodable for LeafData {
     }
 }
 impl Encodable for LeafData {
-    fn consensus_encode<W: std::io::Write + ?Sized>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    fn consensus_encode<W: std::io::Write + ?Sized>(
+        &self,
+        writer: &mut W,
+    ) -> Result<usize, std::io::Error> {
         let mut len = 0;
         len += self.block_hash.consensus_encode(writer)?;
         len += self.prevout.consensus_encode(writer)?;

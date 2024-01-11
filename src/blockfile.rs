@@ -94,7 +94,10 @@ impl BlocksFileManager {
             return &mut self.open_files[*index];
         }
         if self.open_files.len() >= 5 {
-            info!("Releasing file {}", format!("{}/blocks-{}.dat", subdir("blocks"), file));
+            info!(
+                "Releasing file {}",
+                format!("{}/blocks-{}.dat", subdir("blocks"), file)
+            );
 
             self.open_files.remove(self.open_files.len() - 1);
         }
