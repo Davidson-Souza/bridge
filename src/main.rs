@@ -1,31 +1,36 @@
 //SPDX-License-Identifier: MIT
 
 mod api;
+mod blockfile;
 mod chaininterface;
 mod chainview;
 #[cfg(feature = "esplora")]
 mod esplora;
 mod leaf_cache;
 mod node;
-mod blockfile;
 mod prover;
 mod udata;
 
+use std::env;
+use std::fs;
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use actix_rt::signal::ctrl_c;
 use anyhow::Result;
-use bitcoincore_rpc::{Auth, Client};
-use std::{
-    env, fs,
-    sync::{Arc, Mutex},
-};
-
+use bitcoincore_rpc::Auth;
+use bitcoincore_rpc::Client;
+use blockfile::BlocksFileManager;
+use blockfile::BlocksIndex;
 use chaininterface::Blockchain;
 use futures::channel::mpsc::channel;
-use log::{info, warn};
-use blockfile::{BlocksFileManager, BlocksIndex};
-use simplelog::{Config, SharedLogger};
+use log::info;
+use log::warn;
+use simplelog::Config;
+use simplelog::SharedLogger;
 
-use crate::{leaf_cache::DiskLeafStorage, node::Node};
+use crate::leaf_cache::DiskLeafStorage;
+use crate::node::Node;
 
 fn main() -> anyhow::Result<()> {
     fs::DirBuilder::new()

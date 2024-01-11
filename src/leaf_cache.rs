@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use bitcoin::{
-    consensus::{deserialize, serialize},
-    OutPoint,
-};
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::serialize;
+use bitcoin::OutPoint;
 use kv::Config;
 use log::info;
 
-use crate::{prover::LeafCache, udata::LeafData};
+use crate::prover::LeafCache;
+use crate::udata::LeafData;
 
 pub struct DiskLeafStorage {
     /// In-memory cache of leaf data

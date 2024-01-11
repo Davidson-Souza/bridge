@@ -5,27 +5,41 @@
 //! proofs for other modules. To avoid having multiple channels to and from the prover, it
 //! uses a channel to receive requests and sends responses through a oneshot channel, provided
 //! by the request sender. Maybe there is a better way to do this, but this is a TODO for later.
-use bitcoin::{
-    consensus::serialize,
-    network::utreexo::{BatchProof, CompactLeafData, ScriptPubkeyType, UData},
-    Block, BlockHash, OutPoint, Script, Sequence, Transaction, TxIn, Txid, VarInt, Witness,
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use bitcoin::consensus::serialize;
+use bitcoin::network::utreexo::BatchProof;
+use bitcoin::network::utreexo::CompactLeafData;
+use bitcoin::network::utreexo::ScriptPubkeyType;
+use bitcoin::network::utreexo::UData;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::OutPoint;
+use bitcoin::Script;
+use bitcoin::Sequence;
+use bitcoin::Transaction;
+use bitcoin::TxIn;
+use bitcoin::Txid;
+use bitcoin::VarInt;
+use bitcoin::Witness;
 use bitcoin_hashes::Hash;
 use futures::channel::mpsc::Receiver;
-use log::{error, info};
-use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof, stump::Stump};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use log::error;
+use log::info;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::pollard::Pollard;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
+use serde::Deserialize;
+use serde::Serialize;
 
-use crate::{
-    chaininterface::Blockchain,
-    chainview,
-    blockfile::{BlocksFileManager, BlocksIndex},
-    udata::LeafData,
-};
+use crate::chaininterface::Blockchain;
+use crate::chainview;
+use crate::blockfile::BlocksFileManager;
+use crate::blockfile::BlocksIndex;
+use crate::udata::LeafData;
 
 pub trait LeafCache: Sync + Send + Sized + 'static {
     fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData>;

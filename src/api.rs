@@ -4,15 +4,28 @@
 //! of the accumulator, get a proof for a leaf, and get a block and the associated UData.
 use std::str::FromStr;
 
-use crate::prover::{Requests, Responses};
 use actix_cors::Cors;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use bitcoin::{consensus::deserialize, network::utreexo::UtreexoBlock, Block, Txid};
+use actix_web::web;
+use actix_web::App;
+use actix_web::HttpResponse;
+use actix_web::HttpServer;
+use actix_web::Responder;
+use bitcoin::consensus::deserialize;
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::Block;
+use bitcoin::Txid;
 use bitcoin_hashes::Hash;
 use bitcoincore_rpc::jsonrpc::serde_json::json;
-use futures::{channel::mpsc::Sender, lock::Mutex, SinkExt};
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
-use serde::{Deserialize, Serialize};
+use futures::channel::mpsc::Sender;
+use futures::lock::Mutex;
+use futures::SinkExt;
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+use serde::Deserialize;
+use serde::Serialize;
+
+use crate::prover::Requests;
+use crate::prover::Responses;
 /// This is the state of the actix-web server that will be passed as reference by each
 /// callback function. It contains a sender that can be used to send requests to the prover.
 struct AppState {

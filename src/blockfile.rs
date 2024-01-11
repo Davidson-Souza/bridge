@@ -4,20 +4,19 @@
 //! Each proof is a list of hashes and targets, we use those to reconstruct the tree up
 //! to the root. We save them as a flat blob.
 
-use crate::subdir;
-use std::{
-    collections::HashMap,
-    fs::{File, OpenOptions},
-    io::Seek,
-};
+use std::collections::HashMap;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::Seek;
 
-use bitcoin::{
-    consensus::{Decodable, Encodable},
-    hashes::Hash,
-    network::utreexo::UtreexoBlock as Block,
-    BlockHash,
-};
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::Hash;
+use bitcoin::network::utreexo::UtreexoBlock as Block;
+use bitcoin::BlockHash;
 use log::info;
+
+use crate::subdir;
 /// The number of blocks we save in each file.
 const PROOFS_PER_FILE: usize = 10_000;
 

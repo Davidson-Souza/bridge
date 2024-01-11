@@ -1,27 +1,26 @@
 //SPDX-License-Identifier: MIT
 
-use std::{
-    io::{Cursor, Write},
-    net::{TcpListener, TcpStream},
-    sync::{Arc, Mutex},
-};
+use std::io::Cursor;
+use std::io::Write;
+use std::net::TcpListener;
+use std::net::TcpStream;
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use bitcoin::{
-    consensus::{deserialize, Decodable, Encodable},
-    hashes::Hash,
-    network::{
-        constants::ServiceFlags,
-        message::{NetworkMessage, RawNetworkMessage},
-        message_blockdata::Inventory,
-    },
-    BlockHash,
-};
+use bitcoin::consensus::deserialize;
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::hashes::Hash;
+use bitcoin::network::constants::ServiceFlags;
+use bitcoin::network::message::NetworkMessage;
+use bitcoin::network::message::RawNetworkMessage;
+use bitcoin::network::message_blockdata::Inventory;
+use bitcoin::BlockHash;
 use log::info;
 
-use crate::{
-    chainview::ChainView,
-    blockfile::{BlocksFileManager, BlocksIndex},
-};
+use crate::chainview::ChainView;
+use crate::blockfile::BlocksFileManager;
+use crate::blockfile::BlocksIndex;
 
 pub struct Node {
     listener: TcpListener,

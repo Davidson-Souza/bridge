@@ -4,12 +4,17 @@
 //! of Bitcoin Core. But keep in mind that while doing the initial sync, it will be slower and
 //! you risk getting banned from the server if you do too many requests.
 
-use crate::chaininterface::{Blockchain, TransactionInfo};
+use std::fmt::Display;
+
 use anyhow::Result;
-use bitcoin::{consensus, Block, BlockHash};
+use bitcoin::consensus;
+use bitcoin::Block;
+use bitcoin::BlockHash;
 use bitcoin_hashes::Hash;
 use reqwest::blocking::Client;
-use std::fmt::Display;
+
+use crate::chaininterface::Blockchain;
+use crate::chaininterface::TransactionInfo;
 
 #[derive(Debug)]
 pub struct EsploraBlockchain {
@@ -144,10 +149,12 @@ impl Display for EsploraError {
 impl std::error::Error for EsploraError {}
 #[cfg(test)]
 mod tests {
-    use crate::chaininterface::TransactionInfo;
+    use bitcoin::consensus;
+    use bitcoin::Block;
+    use bitcoin::BlockHash;
 
     use super::Client;
-    use bitcoin::{consensus, Block, BlockHash};
+    use crate::chaininterface::TransactionInfo;
 
     #[test]
     fn test_get_block() {

@@ -5,9 +5,15 @@
 //! provide a trait that can be implemented by something, or at least talks to something
 //! that does.
 
-use anyhow::{Ok, Result};
-use bitcoin::{Block, BlockHash, BlockHeader, Transaction, Txid};
-use bitcoincore_rpc::{Client, RpcApi};
+use anyhow::Ok;
+use anyhow::Result;
+use bitcoin::Block;
+use bitcoin::BlockHash;
+use bitcoin::BlockHeader;
+use bitcoin::Transaction;
+use bitcoin::Txid;
+use bitcoincore_rpc::Client;
+use bitcoincore_rpc::RpcApi;
 pub trait Blockchain {
     /// Returns the entire content of a block, given a block hash.
     fn get_block(&self, block_hash: BlockHash) -> Result<Block>;

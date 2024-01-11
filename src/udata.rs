@@ -1,12 +1,15 @@
 //SPDX-License-Identifier: MIT
 
-use bitcoin::{
-    consensus::{Decodable, Encodable},
-    BlockHash, OutPoint, TxOut,
-};
+use bitcoin::consensus::Decodable;
+use bitcoin::consensus::Encodable;
+use bitcoin::BlockHash;
+use bitcoin::OutPoint;
+use bitcoin::TxOut;
 use rustreexo::accumulator::node_hash::NodeHash;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha512_256};
+use serde::Deserialize;
+use serde::Serialize;
+use sha2::Digest;
+use sha2::Sha512_256;
 
 /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
 /// data and some commitments to make it harder to attack an utreexo-only node.
