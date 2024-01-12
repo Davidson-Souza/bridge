@@ -35,10 +35,10 @@ use rustreexo::accumulator::stump::Stump;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::chaininterface::Blockchain;
-use crate::chainview;
 use crate::blockfile::BlocksFileManager;
 use crate::blockfile::BlocksIndex;
+use crate::chaininterface::Blockchain;
+use crate::chainview;
 use crate::udata::LeafData;
 
 pub trait LeafCache: Sync + Send + Sized + 'static {

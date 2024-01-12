@@ -18,9 +18,9 @@ use bitcoin::network::message_blockdata::Inventory;
 use bitcoin::BlockHash;
 use log::info;
 
-use crate::chainview::ChainView;
 use crate::blockfile::BlocksFileManager;
 use crate::blockfile::BlocksIndex;
+use crate::chainview::ChainView;
 
 pub struct Node {
     listener: TcpListener,
