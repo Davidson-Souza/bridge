@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
 //! We save proofs as a flat file, with a header that contains the number of proofs in the file.
 //! Each proof is a list of hashes and targets, we use those to reconstruct the tree up
@@ -55,6 +55,7 @@ impl BlockFile {
             .unwrap();
         Block::consensus_decode(&mut self.file)
     }
+
     pub fn append(&mut self, proof: &Block) -> BlockIndex {
         self.file.seek(std::io::SeekFrom::End(0)).unwrap();
         proof.consensus_encode(&mut self.file).unwrap();
@@ -69,11 +70,10 @@ impl BlockFile {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct BlocksFileManager {
-    /// Hold all files we have open, but not closed yet.
-    open_files: Vec<BlockFile>,
     /// Maps a file name to the index of the file in the open_files vector.
-    open_files_cache: HashMap<String, usize>,
+    open_files_cache: HashMap<u32, BlockFile>,
 }
 
 impl BlocksFileManager {
@@ -82,42 +82,45 @@ impl BlocksFileManager {
             .recursive(true) // If recursive is false, if the dir exists, it will fail.
             .create(subdir("blocks"))
             .unwrap();
-        Self {
-            open_files: Vec::new(),
-            open_files_cache: HashMap::new(),
-        }
+
+        Default::default()
     }
+
     pub fn get_file(&mut self, file: u32) -> &mut BlockFile {
         let file_name = format!("{}/blocks-{}.dat", subdir("blocks"), file);
-        if let Some(index) = self.open_files_cache.get(&file_name) {
-            return &mut self.open_files[*index];
+
+        if self.open_files_cache.contains_key(&file) {
+            return self.open_files_cache.get_mut(&file).unwrap();
         }
-        if self.open_files.len() >= 5 {
+
+        if self.open_files_cache.len() >= 5 {
             info!(
                 "Releasing file {}",
                 format!("{}/blocks-{}.dat", subdir("blocks"), file)
             );
 
-            self.open_files.remove(self.open_files.len() - 1);
+            self.open_files_cache.remove(&file);
         }
-        let file = OpenOptions::new()
+
+        let fs_file = OpenOptions::new()
             .write(true)
             .create(true)
             .read(true)
             .open(&file_name)
             .unwrap();
-        let file = BlockFile::new(file);
-        self.open_files.push(file);
-        self.open_files_cache
-            .insert(file_name, self.open_files.len() - 1);
-        let n_files = self.open_files.len() - 1;
-        &mut self.open_files[n_files]
+
+        let block_file = BlockFile::new(fs_file);
+
+        self.open_files_cache.insert(file, block_file);
+
+        self.open_files_cache.get_mut(&file).unwrap()
     }
 
     pub fn get_block(&mut self, index: BlockIndex) -> Option<Block> {
         let file = self.get_file(index.file);
         file.get(index).ok()
     }
+
     pub fn append(&mut self, block: &Block, height: usize) -> BlockIndex {
         let file_number = height as u32 / PROOFS_PER_FILE as u32;
         let file = self.get_file(file_number);
@@ -131,6 +134,7 @@ impl BlocksFileManager {
 pub enum IndexEntry {
     Index(BlockIndex),
 }
+
 impl kv::Value for IndexEntry {
     fn from_raw_value(r: kv::Raw) -> Result<Self, kv::Error> {
         Ok(IndexEntry::Index(BlockIndex {
@@ -149,6 +153,7 @@ impl kv::Value for IndexEntry {
         }
     }
 }
+
 pub struct BlocksIndex {
     pub database: kv::Store,
 }
@@ -165,6 +170,7 @@ impl BlocksIndex {
             _ => None,
         }
     }
+
     pub fn update_height<'a>(&self, height: usize) {
         let bucket = self
             .database
@@ -176,6 +182,7 @@ impl BlocksIndex {
             .expect("Failed to write index");
         bucket.flush().unwrap();
     }
+
     pub fn load_height<'a>(&self) -> usize {
         let bucket = self
             .database
@@ -188,6 +195,7 @@ impl BlocksIndex {
             _ => 0,
         }
     }
+
     pub fn append<'a>(&self, index: BlockIndex, block: BlockHash) {
         let bucket = self
             .database
