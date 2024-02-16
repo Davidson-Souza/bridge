@@ -38,7 +38,7 @@ impl ChainView {
             .storage
             .bucket::<&[u8], Vec<u8>>(Some("index"))
             .unwrap();
-        let hash = bucket.get(&&height.to_be_bytes().as_slice())?;
+        let hash = bucket.get(&height.to_be_bytes().as_slice())?;
         match hash {
             Some(hash) => Ok(Some(BlockHash::from_slice(&hash).unwrap())),
             None => Ok(None),
@@ -57,7 +57,7 @@ impl ChainView {
             .storage
             .bucket::<&[u8], Vec<u8>>(Some("index"))
             .unwrap();
-        bucket.set(&&height.to_be_bytes().as_slice(), &hash.to_vec())?;
+        bucket.set(&height.to_be_bytes().as_slice(), &hash.to_vec())?;
         Ok(())
     }
     pub fn get_height(&self, hash: BlockHash) -> Result<Option<u32>, kv::Error> {

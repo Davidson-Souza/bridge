@@ -205,8 +205,18 @@ fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
     match client {
         Ok(client) => {
             info!("Using bitcoin core at {}", rpc_url);
-            return Ok(Box::new(client));
+            Ok(Box::new(client))
         }
         Err(e) => Err(anyhow::anyhow!("Couldn't connect to bitcoin core: {e}")),
     }
 }
+
+macro_rules! try_and_log_error {
+    ($op: expr) => {
+        if let Err(e) = $op {
+            error!("Error: {}", e);
+        }
+    };
+}
+
+pub(crate) use try_and_log_error;

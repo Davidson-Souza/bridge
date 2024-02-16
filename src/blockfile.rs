@@ -106,7 +106,7 @@ impl BlocksFileManager {
             .write(true)
             .create(true)
             .read(true)
-            .open(&file_name)
+            .open(file_name)
             .unwrap();
 
         let block_file = BlockFile::new(fs_file);
@@ -162,10 +162,10 @@ impl BlocksIndex {
     pub fn get_index<'a>(&self, block: BlockHash) -> Option<BlockIndex> {
         let bucket = self
             .database
-            .bucket::<&'a [u8], IndexEntry>(Some(&"index"))
+            .bucket::<&'a [u8], IndexEntry>(Some("index"))
             .unwrap();
         let key: [u8; 32] = block.into_inner();
-        match bucket.get(&&*key.as_slice()) {
+        match bucket.get(&key.as_slice()) {
             Ok(Some(IndexEntry::Index(index))) => Some(index),
             _ => None,
         }
@@ -174,11 +174,11 @@ impl BlocksIndex {
     pub fn update_height<'a>(&self, height: usize) {
         let bucket = self
             .database
-            .bucket::<&'a [u8], Vec<u8>>(Some(&"meta"))
+            .bucket::<&'a [u8], Vec<u8>>(Some("meta"))
             .unwrap();
         let key = b"height";
         bucket
-            .set(&&key.as_slice(), &height.to_be_bytes().to_vec())
+            .set(&key.as_slice(), &height.to_be_bytes().to_vec())
             .expect("Failed to write index");
         bucket.flush().unwrap();
     }
@@ -186,10 +186,10 @@ impl BlocksIndex {
     pub fn load_height<'a>(&self) -> usize {
         let bucket = self
             .database
-            .bucket::<&'a [u8], Vec<u8>>(Some(&"meta"))
+            .bucket::<&'a [u8], Vec<u8>>(Some("meta"))
             .unwrap();
         let key = b"height";
-        let height = bucket.get(&&key.as_slice());
+        let height = bucket.get(&key.as_slice());
         match height {
             Ok(Some(height)) => usize::from_be_bytes(height[..].try_into().unwrap()),
             _ => 0,
@@ -199,11 +199,11 @@ impl BlocksIndex {
     pub fn append<'a>(&self, index: BlockIndex, block: BlockHash) {
         let bucket = self
             .database
-            .bucket::<&'a [u8], IndexEntry>(Some(&"index"))
+            .bucket::<&'a [u8], IndexEntry>(Some("index"))
             .unwrap();
         let key: [u8; 32] = block.into_inner();
         bucket
-            .set(&&key.as_slice(), &IndexEntry::Index(index))
+            .set(&key.as_slice(), &IndexEntry::Index(index))
             .expect("Failed to write index");
     }
 }

@@ -16,11 +16,13 @@ use bitcoin::network::message::NetworkMessage;
 use bitcoin::network::message::RawNetworkMessage;
 use bitcoin::network::message_blockdata::Inventory;
 use bitcoin::BlockHash;
+use log::error;
 use log::info;
 
 use crate::blockfile::BlocksFileManager;
 use crate::blockfile::BlocksIndex;
 use crate::chainview::ChainView;
+use crate::try_and_log_error;
 
 pub struct Node {
     listener: TcpListener,
@@ -62,7 +64,7 @@ impl Peer {
                     magic: request.magic,
                     payload: NetworkMessage::Pong(nonce),
                 };
-                pong.consensus_encode(&mut self.writer).unwrap();
+                try_and_log_error!(pong.consensus_encode(&mut self.writer));
             }
             NetworkMessage::GetData(inv) => {
                 let mut blocks = Cursor::new(vec![]);
@@ -80,7 +82,7 @@ impl Peer {
                                         magic: request.magic,
                                         payload: NetworkMessage::Block(block),
                                     };
-                                    block.consensus_encode(&mut blocks).unwrap();
+                                    try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
                                 None => {
                                     let res = RawNetworkMessage {
@@ -89,7 +91,7 @@ impl Peer {
                                             Inventory::WitnessBlock(block_hash),
                                         ]),
                                     };
-                                    res.consensus_encode(&mut self.writer).unwrap();
+                                    try_and_log_error!(res.consensus_encode(&mut self.writer));
                                 }
                             }
                         }
@@ -103,7 +105,7 @@ impl Peer {
                                         magic: request.magic,
                                         payload: NetworkMessage::Block(block.block.into()),
                                     };
-                                    block.consensus_encode(&mut blocks).unwrap();
+                                    try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
                                 None => {
                                     let res = RawNetworkMessage {
@@ -112,7 +114,7 @@ impl Peer {
                                             Inventory::WitnessBlock(block_hash),
                                         ]),
                                     };
-                                    res.consensus_encode(&mut self.writer).unwrap();
+                                    try_and_log_error!(res.consensus_encode(&mut self.writer));
                                 }
                             }
                         }
@@ -121,6 +123,7 @@ impl Peer {
                                 .proof_index
                                 .get_index(BlockHash::from_inner(hash))
                                 .unwrap();
+
                             let mut lock = self.proof_backend.lock().unwrap();
                             match lock.get_block(block) {
                                 Some(block) => {
@@ -128,7 +131,7 @@ impl Peer {
                                         magic: request.magic,
                                         payload: NetworkMessage::Block(block),
                                     };
-                                    block.consensus_encode(&mut blocks).unwrap();
+                                    try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
                                 None => {
                                     let res = RawNetworkMessage {
@@ -137,7 +140,8 @@ impl Peer {
                                             Inventory::WitnessBlock(BlockHash::from_inner(hash)),
                                         ]),
                                     };
-                                    res.consensus_encode(&mut self.writer).unwrap();
+
+                                    try_and_log_error!(res.consensus_encode(&mut self.writer) );
                                 }
                             }
                         }
@@ -145,7 +149,7 @@ impl Peer {
                         _ => {}
                     }
                 }
-                self.writer.write_all(&blocks.into_inner()).unwrap();
+                try_and_log_error!(self.writer.write_all(&blocks.into_inner()));
             }
             NetworkMessage::GetHeaders(locator) => {
                 let mut headers = vec![];
@@ -157,6 +161,7 @@ impl Peer {
                     let Ok(Some(block_hash)) = self.chainview.get_block_hash(h) else {
                         break;
                     };
+
                     let Ok(Some(header_info)) = self.chainview.get_block(block_hash) else {
                         break;
                     };
@@ -169,7 +174,7 @@ impl Peer {
                     magic: request.magic,
                     payload: NetworkMessage::Headers(headers),
                 };
-                headers.consensus_encode(&mut self.writer).unwrap();
+                let _ = headers.consensus_encode(&mut self.writer);
             }
             NetworkMessage::Version(version) => {
                 info!(
