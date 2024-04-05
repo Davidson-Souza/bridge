@@ -24,6 +24,8 @@ use crate::blockfile::BlocksIndex;
 use crate::chainview::ChainView;
 use crate::try_and_log_error;
 
+const FILTER_TYPE_UTREEXO: u8 = 1;
+
 pub struct Node {
     listener: TcpListener,
     proof_backend: Arc<Mutex<BlocksFileManager>>,
@@ -56,6 +58,7 @@ impl Peer {
             chainview,
         }
     }
+
     pub fn handle_request(&mut self) -> Result<(), bitcoin::consensus::encode::Error> {
         let request = RawNetworkMessage::consensus_decode(&mut self.reader)?;
         match request.payload {
@@ -141,7 +144,7 @@ impl Peer {
                                         ]),
                                     };
 
-                                    try_and_log_error!(res.consensus_encode(&mut self.writer) );
+                                    try_and_log_error!(res.consensus_encode(&mut self.writer));
                                 }
                             }
                         }
@@ -193,13 +196,14 @@ impl Peer {
                             services: ServiceFlags::NETWORK_LIMITED
                                 | ServiceFlags::NETWORK
                                 | ServiceFlags::WITNESS
-                                | ServiceFlags::from(1 << 24),
+                                | ServiceFlags::from(1 << 24)  // UTREEXO
+                                | ServiceFlags::from(1 << 25), // UTREEXO_BLOCK_FILTERS
                             timestamp: version.timestamp + 1,
                             receiver: version.sender,
                             sender: version.receiver,
                             nonce: version.nonce + 100,
                             user_agent: "/rustreexo:0.1.0/bridge:0.1.0".to_string(),
-                            start_height: 800_000,
+                            start_height: self.proof_index.load_height() as i32,
                             relay: false,
                         },
                     ),
@@ -212,6 +216,30 @@ impl Peer {
                 };
                 verack.consensus_encode(&mut self.writer).unwrap();
             }
+            NetworkMessage::GetCFilters(req) => {
+                if req.filter_type == FILTER_TYPE_UTREEXO {
+                    let Ok(Some(acc)) = self.chainview.get_acc(req.stop_hash) else {
+                        // if this block is not in the chainview, ignore the request
+                        return Ok(());
+                    };
+
+                    let cfilter = &RawNetworkMessage {
+                        magic: request.magic,
+                        payload: NetworkMessage::CFilter(
+                            bitcoin::network::message_filter::CFilter {
+                                filter_type: FILTER_TYPE_UTREEXO,
+                                block_hash: req.stop_hash,
+                                filter: acc,
+                            },
+                        ),
+                    };
+
+                    try_and_log_error!(cfilter.consensus_encode(&mut self.writer));
+                }
+
+                // ignore unknown filter types
+            }
+
             _ => {}
         }
         Ok(())

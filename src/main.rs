@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
         p2p_port
     );
     let listener = std::net::TcpListener::bind(p2p_address).unwrap();
-    let node = node::Node::new(listener, blocks, index_store, view);
+    let node = node::Node::new(listener, blocks, index_store, view.clone());
     std::thread::spawn(move || {
         Node::accept_connections(node);
     });
@@ -116,7 +116,7 @@ fn main() -> anyhow::Result<()> {
     info!("Starting api");
     std::thread::spawn(|| {
         actix_rt::System::new()
-            .block_on(api::create_api(sender))
+            .block_on(api::create_api(sender, view))
             .unwrap()
     });
 
@@ -212,7 +212,7 @@ fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
 }
 
 macro_rules! try_and_log_error {
-    ($op: expr) => {
+    ($op:expr) => {
         if let Err(e) = $op {
             error!("Error: {}", e);
         }

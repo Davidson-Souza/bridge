@@ -14,6 +14,24 @@ impl ChainView {
     pub fn new(storage: Store) -> Self {
         Self { storage }
     }
+
+    pub fn save_acc(&self, roots: Vec<u8>, hash: BlockHash) {
+        let _ = self
+            .storage
+            .bucket::<&[u8], Vec<u8>>(Some("roots"))
+            .unwrap()
+            .set(&&*hash, &roots);
+    }
+
+    pub fn get_acc(&self, hash: BlockHash) -> Result<Option<Vec<u8>>, kv::Error> {
+        let bucket = self
+            .storage
+            .bucket::<&[u8], Vec<u8>>(Some("roots"))
+            .unwrap();
+
+        bucket.get(&&*hash)
+    }
+
     pub fn flush(&self) {
         let _ = self
             .storage

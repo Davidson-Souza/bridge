@@ -3,6 +3,7 @@
 //! This is a simple REST API that can be used to query Utreexo data. You can get the roots
 //! of the accumulator, get a proof for a leaf, and get a block and the associated UData.
 use std::str::FromStr;
+use std::sync::Arc;
 
 use actix_cors::Cors;
 use actix_web::web;
@@ -13,6 +14,7 @@ use actix_web::Responder;
 use bitcoin::consensus::deserialize;
 use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
+use bitcoin::BlockHash;
 use bitcoin::Txid;
 use bitcoin_hashes::Hash;
 use bitcoincore_rpc::jsonrpc::serde_json::json;
@@ -24,6 +26,7 @@ use rustreexo::accumulator::proof::Proof;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::chainview::ChainView;
 use crate::prover::Requests;
 use crate::prover::Responses;
 /// This is the state of the actix-web server that will be passed as reference by each
@@ -36,6 +39,7 @@ struct AppState {
             futures::channel::oneshot::Sender<Result<Responses, String>>,
         )>,
     >,
+    view: Arc<ChainView>,
 }
 
 /// This function is used to send a request to the prover and wait for the response, and
@@ -187,15 +191,41 @@ async fn get_roots(data: web::Data<AppState>) -> HttpResponse {
     }
 }
 
+async fn get_roots_for_height(
+    hash: web::Path<BlockHash>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let hash = hash.into_inner();
+    match data.view.get_acc(hash) {
+        Ok(Some(acc)) => {
+            let acc = acc.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+            HttpResponse::Ok().json(json!({
+                "error": null,
+                "data": acc
+            }))
+        }
+        Ok(None) => HttpResponse::NotFound().json(json!({
+            "error": "No roots found for this block",
+            "data": null
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": e.to_string(),
+            "data": null
+        })),
+    }
+}
+
 /// This function creates the actix-web server and returns a future that can be awaited.
 pub async fn create_api(
     request: Sender<(
         Requests,
         futures::channel::oneshot::Sender<Result<Responses, String>>,
     )>,
+    view: Arc<ChainView>,
 ) -> std::io::Result<()> {
     let app_state = web::Data::new(AppState {
         sender: Mutex::new(request),
+        view,
     });
     HttpServer::new(move || {
         let cors = Cors::permissive();
@@ -208,6 +238,7 @@ pub async fn create_api(
             .route("/tx/{hash}/outputs", web::get().to(get_transaction))
             .route("/acc", web::get().to(get_roots_with_leaf))
             .route("/batch_block/{height}/{n}", web::get().to(get_n_blocks))
+            .route("/roots/{hash}", web::get().to(get_roots_for_height))
     })
     .bind("0.0.0.0:8080")?
     .run()

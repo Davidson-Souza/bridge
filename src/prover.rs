@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use bitcoin::consensus::serialize;
+use bitcoin::consensus::Encodable;
 use bitcoin::network::utreexo::BatchProof;
 use bitcoin::network::utreexo::CompactLeafData;
 use bitcoin::network::utreexo::ScriptPubkeyType;
@@ -390,6 +391,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
         let mut inputs = Vec::new();
         let mut utxos = Vec::new();
         let mut compact_leaves = Vec::new();
+
         for tx in block.txdata.iter() {
             let txid = tx.txid();
             for input in tx.input.iter() {
@@ -439,6 +441,16 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 
         let proof = self.acc.prove(&inputs).unwrap();
         self.acc.modify(&utxos, &inputs).unwrap();
+
+        let mut ser_acc = Vec::new();
+
+        self.acc.leaves.consensus_encode(&mut ser_acc).unwrap();
+        self.acc.get_roots().iter().for_each(|x| {
+            x.get_data().consensus_encode(&mut ser_acc).unwrap();
+        });
+
+        self.view.save_acc(ser_acc, block.block_hash());
+
         (
             BatchProof {
                 targets: proof.targets.iter().map(|target| VarInt(*target)).collect(),
