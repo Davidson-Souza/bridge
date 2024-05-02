@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::serialize;
 use bitcoin::OutPoint;
+use kv::Batch;
 use kv::Config;
 use log::info;
 
@@ -29,7 +30,7 @@ impl LeafCache for DiskLeafStorage {
     fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) -> bool {
         let height = leaf_data.header_code >> 1;
         self.cache.insert(outpoint, (height, leaf_data));
-        self.cache.len() > 1_000_000
+        self.cache.len() > 100_000
     }
 
     fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData> {
@@ -55,10 +56,10 @@ impl LeafCache for DiskLeafStorage {
 impl DiskLeafStorage {
     pub fn new(dir: &str) -> Self {
         let db = kv::Store::new(Config {
-            cache_capacity: Some(1_000_000),
+            cache_capacity: None,
             path: dir.into(),
             flush_every_ms: Some(10000),
-            segment_size: Some(1024 * 1024),
+            segment_size: None,
             temporary: false,
             use_compression: false,
         })
@@ -66,7 +67,7 @@ impl DiskLeafStorage {
         let bucket = db.bucket::<Vec<u8>, Vec<u8>>(None).unwrap();
         Self {
             bucket,
-            cache: HashMap::with_capacity(1_000_000),
+            cache: HashMap::with_capacity(100_000),
         }
     }
 
@@ -77,17 +78,23 @@ impl DiskLeafStorage {
     fn flush(&mut self) {
         info!("Flushing leaf cache to disk, this might take a while");
         let mut new_map = HashMap::new();
+        let mut batch = Batch::new();
         for (outpoint, (height, leaf_data)) in self.cache.iter() {
+            // Don't uncache things that are too recent
             if *height < 100 {
                 new_map.insert(*outpoint, (*height, leaf_data.clone()));
                 continue;
             }
 
             let serialized = serialize(&leaf_data);
-            self.bucket
-                .set(&serialize(&outpoint), &serialized)
-                .expect("Failed to insert leaf into disk cache");
+            batch
+                .set(&serialize(outpoint), &serialized)
+                .expect("Failed to flush leaf cache");
         }
+        info!("Applying batch to disk, this might take a while");
+        self.bucket
+            .batch(batch)
+            .expect("Failed to flush leaf cache");
 
         self.cache = new_map;
     }

@@ -58,14 +58,39 @@ async fn perform_request(
     receiver.await.unwrap()
 }
 
+/// the handler for the /transaction/{hash}/unpent endpoint. It returns the unspent outputs of a transaction given its hash, as well as the proof for those outpouts.
+async fn get_tx_unspent(hash: web::Path<Txid>, data: web::Data<AppState>) -> impl Responder {
+    let hash = hash.into_inner();
+    let res = perform_request(&data, Requests::GetTxUnpent(hash)).await;
+    match res {
+        Ok(Responses::TransactionOut(outputs, proof)) => HttpResponse::Ok().json(json!({
+            "error": null,
+            "data": {
+                "outputs": outputs,
+                "proof": JsonProof::from(proof),
+            },
+        })),
+        Ok(_) => HttpResponse::InternalServerError().json(json!({
+            "error": "Invalid response",
+            "data": null
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "error": e,
+            "data": null
+        })),
+    }
+}
+
 /// The handler for the `/proof/{hash}` endpoint. It returns a proof for the given hash, if
 /// it exists.
 async fn get_proof(hash: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let hash = hash.into_inner();
     let hash = NodeHash::from_str(&hash);
+
     if let Err(e) = hash {
         return HttpResponse::BadRequest().body(format!("Invalid hash {e}"));
     }
+
     let res = perform_request(&data, Requests::GetProof(hash.unwrap())).await;
 
     match res {
@@ -191,7 +216,7 @@ async fn get_roots(data: web::Data<AppState>) -> HttpResponse {
     }
 }
 
-async fn get_roots_for_height(
+async fn get_roots_for_block(
     hash: web::Path<BlockHash>,
     data: web::Data<AppState>,
 ) -> HttpResponse {
@@ -222,6 +247,7 @@ pub async fn create_api(
         futures::channel::oneshot::Sender<Result<Responses, String>>,
     )>,
     view: Arc<ChainView>,
+    host: &str,
 ) -> std::io::Result<()> {
     let app_state = web::Data::new(AppState {
         sender: Mutex::new(request),
@@ -238,9 +264,10 @@ pub async fn create_api(
             .route("/tx/{hash}/outputs", web::get().to(get_transaction))
             .route("/acc", web::get().to(get_roots_with_leaf))
             .route("/batch_block/{height}/{n}", web::get().to(get_n_blocks))
-            .route("/roots/{hash}", web::get().to(get_roots_for_height))
+            .route("/roots/{hash}", web::get().to(get_roots_for_block))
+            .route("/tx/{hash}/unspent", web::get().to(get_tx_unspent))
     })
-    .bind("0.0.0.0:8080")?
+    .bind(host)?
     .run()
     .await
 }

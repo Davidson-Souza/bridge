@@ -114,9 +114,10 @@ fn main() -> anyhow::Result<()> {
     // This is our implementation of the json-rpc api, it will listen for
     // incoming connections and serve some Utreexo data to clients.
     info!("Starting api");
-    std::thread::spawn(|| {
+    let host = env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1:3000".into());
+    std::thread::spawn(move || {
         actix_rt::System::new()
-            .block_on(api::create_api(sender, view))
+            .block_on(api::create_api(sender, view, &host))
             .unwrap()
     });
 

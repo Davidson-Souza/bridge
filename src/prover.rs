@@ -22,6 +22,7 @@ use bitcoin::Script;
 use bitcoin::Sequence;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
+use bitcoin::TxOut;
 use bitcoin::Txid;
 use bitcoin::VarInt;
 use bitcoin::Witness;
@@ -154,6 +155,49 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                         height
                     ))?;
                 Ok(Responses::Block(serialize(&block)))
+            }
+            Requests::GetTxUnpent(txid) => {
+                // returns the unspent outputs of a transaction and a proof for them
+                let tx = self
+                    .rpc
+                    .get_transaction(txid)
+                    .map_err(|_| anyhow::anyhow!("Transaction {} not found", txid))?;
+
+                let (outputs, hashes): (Vec<TxOut>, Vec<LeafData>) = tx
+                    .output
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(idx, output)| {
+                        let leaf = Self::get_full_input_leaf_data(
+                            &mut self.leaf_data,
+                            &TxIn {
+                                previous_output: OutPoint {
+                                    txid,
+                                    vout: idx as u32,
+                                },
+                                script_sig: Script::new(),
+                                sequence: Sequence::ZERO,
+                                witness: Witness::new(),
+                            },
+                            &self.rpc,
+                        )?;
+
+                        Some((output.clone(), leaf))
+                    })
+                    .filter(|(_, hash)| self.acc.prove(&[hash.get_leaf_hashes()]).is_ok())
+                    .unzip();
+
+                let proof = self
+                    .acc
+                    .prove(
+                        &hashes
+                            .iter()
+                            .map(|x| x.get_leaf_hashes())
+                            .collect::<Vec<_>>(),
+                    )
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+                Ok(Responses::TransactionOut(outputs, proof))
             }
             Requests::GetTransaction(txid) => {
                 let tx = self
@@ -375,15 +419,26 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
     /// Returns the leaf hash and the compact leaf data for a given input. If the leaf is not in
     /// leaf_data we will try to get it from the bitcoin core rpc.
     fn get_input_leaf_hash(&mut self, input: &TxIn) -> (NodeHash, CompactLeafData) {
-        let leaf = self
-            .leaf_data
-            .remove(&input.previous_output)
-            .unwrap_or_else(|| Self::get_input_leaf_hash_from_rpc(&self.rpc, input).unwrap());
+        let leaf = loop {
+            match self
+                .leaf_data
+                .remove(&input.previous_output)
+                .or_else(|| Self::get_input_leaf_hash_from_rpc(&self.rpc, input))
+            {
+                Some(leaf) => break leaf,
+                None => {
+                    info!("Leaf not found in leaf_data, trying to get it from rpc");
+                    continue;
+                }
+            }
+        };
+
         let compact_leaf = CompactLeafData {
             spk_ty: Self::get_spk_type(&leaf.utxo.script_pubkey),
             amount: leaf.utxo.value,
             header_code: leaf.header_code,
         };
+
         (leaf.get_leaf_hashes(), compact_leaf)
     }
     /// Processes a block and returns the batch proof and the compact leaf data for the block.
@@ -480,6 +535,7 @@ pub enum Requests {
     GetCSN,
     /// Returns multiple blocks and utreexo data for them.
     GetBlocksByHeight(u32, u32),
+    GetTxUnpent(Txid),
 }
 /// All responses the prover will send.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -496,4 +552,5 @@ pub enum Responses {
     CSN(Stump),
     /// Multiple blocks and utreexo data for them.
     Blocks(Vec<Vec<u8>>),
+    TransactionOut(Vec<TxOut>, Proof),
 }
