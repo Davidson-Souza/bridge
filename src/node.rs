@@ -32,6 +32,7 @@ pub struct Node {
     proof_index: Arc<BlocksIndex>,
     chainview: Arc<ChainView>,
 }
+
 pub struct Peer {
     proof_backend: Arc<Mutex<BlocksFileManager>>,
     reader: TcpStream,
@@ -75,7 +76,17 @@ impl Peer {
                 for el in inv {
                     match el {
                         Inventory::UtreexoWitnessBlock(block_hash) => {
-                            let block = self.proof_index.get_index(block_hash).unwrap();
+                            let Some(block) = self.proof_index.get_index(block_hash) else {
+                                let res = RawNetworkMessage {
+                                    magic: request.magic,
+                                    payload: NetworkMessage::NotFound(vec![
+                                        Inventory::UtreexoWitnessBlock(block_hash),
+                                    ]),
+                                };
+                                try_and_log_error!(res.consensus_encode(&mut self.writer));
+                                continue;
+                            };
+
                             let mut lock = self.proof_backend.lock().unwrap();
                             match lock.get_block(block) {
                                 //TODO: Rust-Bitcoin asks for a block, but we have it serialized on disk already.
@@ -99,7 +110,16 @@ impl Peer {
                             }
                         }
                         Inventory::WitnessBlock(block_hash) => {
-                            let block = self.proof_index.get_index(block_hash).unwrap();
+                            let Some(block) = self.proof_index.get_index(block_hash) else {
+                                let res = RawNetworkMessage {
+                                    magic: request.magic,
+                                    payload: NetworkMessage::NotFound(vec![
+                                        Inventory::WitnessBlock(block_hash),
+                                    ]),
+                                };
+                                try_and_log_error!(res.consensus_encode(&mut self.writer));
+                                continue;
+                            };
                             let mut lock = self.proof_backend.lock().unwrap();
 
                             match lock.get_block(block) {
@@ -117,33 +137,6 @@ impl Peer {
                                             Inventory::WitnessBlock(block_hash),
                                         ]),
                                     };
-                                    try_and_log_error!(res.consensus_encode(&mut self.writer));
-                                }
-                            }
-                        }
-                        Inventory::Unknown { hash, .. } => {
-                            let block = self
-                                .proof_index
-                                .get_index(BlockHash::from_inner(hash))
-                                .unwrap();
-
-                            let mut lock = self.proof_backend.lock().unwrap();
-                            match lock.get_block(block) {
-                                Some(block) => {
-                                    let block = RawNetworkMessage {
-                                        magic: request.magic,
-                                        payload: NetworkMessage::Block(block),
-                                    };
-                                    try_and_log_error!(block.consensus_encode(&mut blocks));
-                                }
-                                None => {
-                                    let res = RawNetworkMessage {
-                                        magic: request.magic,
-                                        payload: NetworkMessage::NotFound(vec![
-                                            Inventory::WitnessBlock(BlockHash::from_inner(hash)),
-                                        ]),
-                                    };
-
                                     try_and_log_error!(res.consensus_encode(&mut self.writer));
                                 }
                             }
@@ -268,6 +261,7 @@ impl<'a> Node {
             chainview: view,
         }
     }
+
     pub fn accept_connections(self) {
         while let Ok((stream, addr)) = self.listener.accept() {
             info!("New connection from {}", addr);
