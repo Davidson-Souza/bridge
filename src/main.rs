@@ -15,12 +15,12 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
 
 use actix_rt::signal::ctrl_c;
 use anyhow::Result;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
-use blockfile::BlocksFileManager;
 use blockfile::BlocksIndex;
 use chaininterface::Blockchain;
 use futures::channel::mpsc::channel;
@@ -29,6 +29,7 @@ use log::warn;
 use simplelog::Config;
 use simplelog::SharedLogger;
 
+use crate::blockfile::BlockFile;
 use crate::leaf_cache::DiskLeafStorage;
 use crate::node::Node;
 
@@ -72,6 +73,7 @@ fn main() -> anyhow::Result<()> {
             segment_size: None,
         })
         .unwrap(),
+
     };
     // Put it into an Arc so we can share it between threads
     let index_store = Arc::new(index_store);
@@ -79,7 +81,9 @@ fn main() -> anyhow::Result<()> {
     // that are indexed by the index above. They are stored in the `blocks/` directory
     // and are serialized as bitcoin blocks, so we don't need to do any parsing
     // before sending to a peer.
-    let blocks = Arc::new(Mutex::new(BlocksFileManager::new()));
+    let blocks = Arc::new(RwLock::new(
+        BlockFile::new(subdir("blocks").into(), 10_000_000_000).expect("Could not open block file"),
+    ));
     // The prover needs some way to pull blocks from a trusted source, we can use anything
     // implementing the [Blockchain] trait, for example a bitcoin core node or an esplora
     // instance.

@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
 
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Encodable;
@@ -37,7 +38,7 @@ use rustreexo::accumulator::stump::Stump;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::blockfile::BlocksFileManager;
+use crate::blockfile::BlockFile;
 use crate::blockfile::BlocksIndex;
 use crate::chaininterface::Blockchain;
 use crate::chainview;
@@ -65,7 +66,7 @@ impl LeafCache for HashMap<OutPoint, LeafData> {
 /// All the state that the prover needs to keep track of
 pub struct Prover<LeafStorage: LeafCache> {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
-    files: Arc<Mutex<BlocksFileManager>>,
+    files: Arc<RwLock<BlockFile>>,
     /// A reference to the RPC client that is used to query the blockchain.
     rpc: Box<dyn Blockchain>,
     /// The accumulator that holds the state of the utreexo accumulator.
@@ -89,7 +90,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
     pub fn new(
         rpc: Box<dyn Blockchain>,
         index_database: Arc<BlocksIndex>,
-        files: Arc<Mutex<BlocksFileManager>>,
+        files: Arc<RwLock<BlockFile>>,
         view: Arc<chainview::ChainView>,
         leaf_data: LeafStorage,
     ) -> Prover<LeafStorage> {
@@ -147,7 +148,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 
                 let block = self
                     .files
-                    .lock()
+                    .read()
                     .unwrap()
                     .get_block(block)
                     .ok_or(anyhow::anyhow!(
@@ -257,7 +258,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 
                     let block = self
                         .files
-                        .lock()
+                        .read()
                         .unwrap()
                         .get_block(block)
                         .ok_or(anyhow::anyhow!("Block at height {} not found in files", i))?;
@@ -361,7 +362,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                     leaves,
                 }),
             };
-            let index = self.files.lock().unwrap().append(&block, height as usize);
+            let index = self.files.write().unwrap().append(&block);
             self.storage.append(index, block.block.block_hash());
             self.height = height;
         }
@@ -407,6 +408,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             utxo: output.to_owned(),
         })
     }
+
     fn get_full_input_leaf_data(
         leaf_data: &mut LeafStorage,
         input: &TxIn,

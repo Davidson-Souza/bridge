@@ -5,21 +5,19 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
-use bitcoin::hashes::Hash;
 use bitcoin::network::constants::ServiceFlags;
 use bitcoin::network::message::NetworkMessage;
 use bitcoin::network::message::RawNetworkMessage;
 use bitcoin::network::message_blockdata::Inventory;
-use bitcoin::BlockHash;
 use log::error;
 use log::info;
 
-use crate::blockfile::BlocksFileManager;
+use crate::blockfile::BlockFile;
 use crate::blockfile::BlocksIndex;
 use crate::chainview::ChainView;
 use crate::try_and_log_error;
@@ -28,13 +26,13 @@ const FILTER_TYPE_UTREEXO: u8 = 1;
 
 pub struct Node {
     listener: TcpListener,
-    proof_backend: Arc<Mutex<BlocksFileManager>>,
+    proof_backend: Arc<RwLock<BlockFile>>,
     proof_index: Arc<BlocksIndex>,
     chainview: Arc<ChainView>,
 }
 
 pub struct Peer {
-    proof_backend: Arc<Mutex<BlocksFileManager>>,
+    proof_backend: Arc<RwLock<BlockFile>>,
     reader: TcpStream,
     writer: TcpStream,
     proof_index: Arc<BlocksIndex>,
@@ -46,7 +44,7 @@ impl Peer {
         stream: TcpStream,
         _peer: String,
         _peer_id: String,
-        proof_backend: Arc<Mutex<BlocksFileManager>>,
+        proof_backend: Arc<RwLock<BlockFile>>,
         proof_index: Arc<BlocksIndex>,
         chainview: Arc<ChainView>,
     ) -> Self {
@@ -87,7 +85,7 @@ impl Peer {
                                 continue;
                             };
 
-                            let mut lock = self.proof_backend.lock().unwrap();
+                            let lock = self.proof_backend.read().unwrap();
                             match lock.get_block(block) {
                                 //TODO: Rust-Bitcoin asks for a block, but we have it serialized on disk already.
                                 //      We should be able to just send the block without deserializing it.
@@ -120,7 +118,7 @@ impl Peer {
                                 try_and_log_error!(res.consensus_encode(&mut self.writer));
                                 continue;
                             };
-                            let mut lock = self.proof_backend.lock().unwrap();
+                            let lock = self.proof_backend.read().unwrap();
 
                             match lock.get_block(block) {
                                 Some(block) => {
@@ -250,7 +248,7 @@ impl Peer {
 impl<'a> Node {
     pub fn new(
         listener: TcpListener,
-        proof_backend: Arc<Mutex<BlocksFileManager>>,
+        proof_backend: Arc<RwLock<BlockFile>>,
         proof_index: Arc<BlocksIndex>,
         view: Arc<ChainView>,
     ) -> Self {

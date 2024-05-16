@@ -1,176 +1,153 @@
 // SPDX-License-Identifier: MIT
 
-//! We save proofs as a flat file, with a header that contains the number of proofs in the file.
-//! Each proof is a list of hashes and targets, we use those to reconstruct the tree up
-//! to the root. We save them as a flat blob.
+//! This module holds all blocks and proofs in a file that gets memory-mapped to the process's address space.
+//! This allows for fast access to the data without having to read it from disk, giving the OS the
+//! oportunity to cache the data in memory. This also allows for accessing the data in a read-only
+//! manner without having to use a mutex to synchronize access to the file.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Seek;
+use std::os::fd::AsRawFd;
+use std::path::PathBuf;
+use std::slice;
 
 use bitcoin::consensus::Decodable;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::network::utreexo::UtreexoBlock as Block;
 use bitcoin::BlockHash;
-use log::info;
+use mmap::MapOption;
+use mmap::MemoryMap;
 
-use crate::subdir;
-/// The number of blocks we save in each file.
-const PROOFS_PER_FILE: usize = 10_000;
+/// A file that holds all blocks and proofs in a memory-mapped file.
+pub struct BlockFile {
+    /// A pointer for the memory-mapped region.
+    mmap: MemoryMap,
+    /// The file that holds the data.
+    file: File,
+    /// The current position of the writer in the file.
+    writer_pos: usize,
+}
 
-/// Points to a proof in the file.
-#[derive(Debug, Clone, Copy)]
-pub struct BlockIndex {
-    file: u32,
-    offset: usize,
+unsafe impl Send for BlockFile {}
+unsafe impl Sync for BlockFile {}
+
+impl BlockFile {
+    /// Creates a new memory-mapped file with the given path and size.
+    pub fn new(path: PathBuf, map_size: usize) -> Result<Self, std::io::Error> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&path)?;
+
+        let pos = file.seek(std::io::SeekFrom::End(0))?;
+        let mmap = MemoryMap::new(
+            map_size,
+            &[
+                MapOption::MapReadable,
+                MapOption::MapReadable,
+                MapOption::MapFd(file.as_raw_fd()),
+            ],
+        )
+        .unwrap();
+
+        Ok(Self {
+            mmap,
+            writer_pos: pos as usize,
+            file,
+        })
+    }
+    
+    /// Returns a block at the given position.
+    pub fn get_block(&self, index: BlockIndex) -> Option<Block> {
+        unsafe {
+            Block::consensus_decode(&mut slice::from_raw_parts(self.read(&index), index.size)).ok()
+        }
+    }
+    
+    /// Appends a block to the file and returns the index of the block.
+    pub fn append(&mut self, block: &Block) -> BlockIndex {
+        // seek to the end of the file
+        self.file.seek(std::io::SeekFrom::End(0)).unwrap();
+        let size = block.consensus_encode(&mut self.file).unwrap();
+        self.writer_pos += size;
+
+        BlockIndex {
+            offset: self.writer_pos - size,
+            size,
+        }
+    }
+    
+    /// Returns a pointer to the block at the given index.
+    ///
+    /// This funcion is unsafe because it returns a raw pointer to the memory-mapped region.
+    pub unsafe fn read(&self, index: &BlockIndex) -> *mut u8 {
+        self.mmap.data().wrapping_add(index.offset)
+    }
+}
+
+/// We use this index to keep track of information held on flat files. Right now we only store the
+/// blocks in the file, but if we build things like compact block filters, we can reuse the
+/// indexing logic.
+pub enum IndexEntry {
+    /// The index of a block in the file.
+    Index(BlockIndex),
 }
 
 #[derive(Debug)]
-/// Represents a proof files
-pub struct BlockFile {
-    file: File,
-    id: u32,
-    _size: u32,
-    index: u32,
-}
-
-impl BlockFile {
-    /// Creates a new proof file.
-    pub fn new(mut file: File) -> Self {
-        let offset = file.seek(std::io::SeekFrom::End(0)).unwrap();
-        Self {
-            file,
-            id: 0,
-            _size: 0,
-            index: offset as u32,
-        }
-    }
-
-    /// Returns the proof at the given index.
-    pub fn get(&mut self, index: BlockIndex) -> Result<Block, bitcoin::consensus::encode::Error> {
-        self.file
-            .seek(std::io::SeekFrom::Start(index.offset as u64))
-            .unwrap();
-        Block::consensus_decode(&mut self.file)
-    }
-
-    pub fn append(&mut self, proof: &Block) -> BlockIndex {
-        self.file.seek(std::io::SeekFrom::End(0)).unwrap();
-        proof.consensus_encode(&mut self.file).unwrap();
-
-        let pos = self.file.stream_position().unwrap();
-        let old_pos = self.index;
-        self.index = pos as u32;
-        BlockIndex {
-            file: self.id,
-            offset: old_pos as usize,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct BlocksFileManager {
-    /// Maps a file name to the index of the file in the open_files vector.
-    open_files_cache: HashMap<u32, BlockFile>,
-}
-
-impl BlocksFileManager {
-    pub fn new() -> Self {
-        std::fs::DirBuilder::new()
-            .recursive(true) // If recursive is false, if the dir exists, it will fail.
-            .create(subdir("blocks"))
-            .unwrap();
-
-        Default::default()
-    }
-
-    pub fn get_file(&mut self, file: u32) -> &mut BlockFile {
-        let file_name = format!("{}/blocks-{}.dat", subdir("blocks"), file);
-
-        if self.open_files_cache.contains_key(&file) {
-            return self.open_files_cache.get_mut(&file).unwrap();
-        }
-
-        if self.open_files_cache.len() >= 5 {
-            info!(
-                "Releasing file {}",
-                format!("{}/blocks-{}.dat", subdir("blocks"), file)
-            );
-
-            self.open_files_cache.remove(&file);
-        }
-
-        let fs_file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .read(true)
-            .open(file_name)
-            .unwrap();
-
-        let block_file = BlockFile::new(fs_file);
-
-        self.open_files_cache.insert(file, block_file);
-
-        self.open_files_cache.get_mut(&file).unwrap()
-    }
-
-    pub fn get_block(&mut self, index: BlockIndex) -> Option<Block> {
-        let file = self.get_file(index.file);
-        file.get(index).ok()
-    }
-
-    pub fn append(&mut self, block: &Block, height: usize) -> BlockIndex {
-        let file_number = height as u32 / PROOFS_PER_FILE as u32;
-        let file = self.get_file(file_number);
-
-        let mut index = file.append(block);
-        index.file = file_number;
-        index
-    }
-}
-
-pub enum IndexEntry {
-    Index(BlockIndex),
+/// The index of a block in a file. Each block have an associated index entry.
+pub struct BlockIndex {
+    /// The offset of the block in the file counted from the file's begginning, in bytes.
+    pub offset: usize,
+    /// The size of the block in bytes.
+    pub size: usize,
 }
 
 impl kv::Value for IndexEntry {
     fn from_raw_value(r: kv::Raw) -> Result<Self, kv::Error> {
         Ok(IndexEntry::Index(BlockIndex {
-            file: u32::from_be_bytes(r[0..4].try_into().unwrap()),
-            offset: usize::from_be_bytes(r[4..].try_into().unwrap()),
+            size: u64::from_be_bytes(r[..8].try_into().unwrap()) as usize,
+            offset: u64::from_be_bytes(r[8..].try_into().unwrap()) as usize,
         }))
     }
+
     fn to_raw_value(&self) -> Result<kv::Raw, kv::Error> {
         match self {
             IndexEntry::Index(index) => {
                 let mut buf = Vec::new();
-                buf.extend_from_slice(&index.file.to_be_bytes());
-                buf.extend_from_slice(&index.offset.to_be_bytes());
+                buf.extend_from_slice(&(index.size as u64).to_be_bytes());
+                buf.extend_from_slice(&(index.offset as u64).to_be_bytes());
                 Ok(kv::Raw::from(buf))
             }
         }
     }
 }
 
+/// An index to help us finding blocks and heights.
+///
+/// This keeps track of where in the file each block is stored, so we can quickly access them.
 pub struct BlocksIndex {
     pub database: kv::Store,
 }
 
 impl BlocksIndex {
+    /// Returns the index for a block, given its hash. If the block is not found, it returns None.
     pub fn get_index<'a>(&self, block: BlockHash) -> Option<BlockIndex> {
         let bucket = self
             .database
             .bucket::<&'a [u8], IndexEntry>(Some("index"))
             .unwrap();
+
         let key: [u8; 32] = block.into_inner();
         match bucket.get(&key.as_slice()) {
             Ok(Some(IndexEntry::Index(index))) => Some(index),
             _ => None,
         }
     }
-
+    
+    /// Saves the height of the latest block we have in the index.
     pub fn update_height<'a>(&self, height: usize) {
         let bucket = self
             .database
@@ -182,7 +159,8 @@ impl BlocksIndex {
             .expect("Failed to write index");
         bucket.flush().unwrap();
     }
-
+    
+    /// Returns the height of the latest block we have in the index.
     pub fn load_height<'a>(&self) -> usize {
         let bucket = self
             .database
@@ -195,7 +173,8 @@ impl BlocksIndex {
             _ => 0,
         }
     }
-
+    
+    /// Appends a new block entry to the index.
     pub fn append<'a>(&self, index: BlockIndex, block: BlockHash) {
         let bucket = self
             .database
