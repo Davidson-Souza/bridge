@@ -41,6 +41,7 @@ reqwest = { version = "0.11.18", features = [
 serde_json = { version = "1.0.104", optional = true }
 actix-cors = "0.6.4"
 mmap = "0.1.1"
+jemallocator = "0.5.4"
 
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }

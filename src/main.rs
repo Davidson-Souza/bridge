@@ -1,5 +1,8 @@
 //SPDX-License-Identifier: MIT
 
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 mod api;
 mod blockfile;
 mod chaininterface;
@@ -28,6 +31,7 @@ use log::info;
 use log::warn;
 use simplelog::Config;
 use simplelog::SharedLogger;
+use jemallocator::Jemalloc;
 
 use crate::blockfile::BlockFile;
 use crate::leaf_cache::DiskLeafStorage;
