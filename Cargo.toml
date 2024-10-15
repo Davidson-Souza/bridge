@@ -16,7 +16,7 @@ categories = ["bitcoin", "tools"]
 bitcoin = { version = "0.29" }
 bitcoincore-rpc = "0.16.0"
 bitcoin_hashes = "0.11"
-rustreexo = { version = "0.3.0", features = ["with-serde"] }
+rustreexo = { git = "https://github.com/mit-dci/rustreexo", rev = "9d7afec0354c9f37d7e71a7b7e734e4c6dd374da", features = ["with-serde"] }
 sha2 = "0.10.6"
 anyhow = "1.0.71"
 kv = "0.24.0"
@@ -38,14 +38,18 @@ reqwest = { version = "0.11.18", features = [
     "__rustls",
     "rustls-tls-webpki-roots",
 ], optional = true, default-features = false }
-serde_json = { version = "1.0.104", optional = true }
+serde_json = { version = "1.0.128" }
 actix-cors = "0.6.4"
 mmap = "0.1.1"
 jemallocator = "0.5.4"
+starknet-crypto = { version = "0.7.2", optional = true }
 
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
 
 [features]
-esplora = ["reqwest", "serde_json"]
-default = []
+esplora = ["reqwest"]
+default = ["shinigami"]
+shinigami = ["starknet-crypto"]
+
+[dev-dependencies]

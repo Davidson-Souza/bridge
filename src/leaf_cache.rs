@@ -56,9 +56,9 @@ impl LeafCache for DiskLeafStorage {
 impl DiskLeafStorage {
     pub fn new(dir: &str) -> Self {
         let db = kv::Store::new(Config {
-            cache_capacity: None,
+            cache_capacity: Some(1_000_000),
             path: dir.into(),
-            flush_every_ms: Some(10000),
+            flush_every_ms: Some(100),
             segment_size: None,
             temporary: false,
             use_compression: false,

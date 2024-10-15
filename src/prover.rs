@@ -12,65 +12,73 @@ use std::sync::RwLock;
 
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Encodable;
-use bitcoin::network::utreexo::BatchProof;
-use bitcoin::network::utreexo::CompactLeafData;
-use bitcoin::network::utreexo::ScriptPubkeyType;
-use bitcoin::network::utreexo::UData;
 use bitcoin::Block;
-use bitcoin::BlockHash;
 use bitcoin::OutPoint;
-use bitcoin::Script;
-use bitcoin::Sequence;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Txid;
-use bitcoin::VarInt;
-use bitcoin::Witness;
-use bitcoin_hashes::Hash;
-use futures::channel::mpsc::Receiver;
 use log::error;
 use log::info;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::pollard::Pollard;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::blockfile::BlockFile;
-use crate::blockfile::BlocksIndex;
+use crate::block_index::BlockIndex;
+use crate::block_index::BlocksIndex;
 use crate::chaininterface::Blockchain;
 use crate::chainview;
+use crate::udata::LeafContext;
 use crate::udata::LeafData;
 
+#[cfg(not(feature = "shinigami"))]
+pub type AccumulatorHash = rustreexo::accumulator::node_hash::BitcoinNodeHash;
+
+pub trait BlockStorage {
+    fn save_block(
+        &self,
+        block: &Block,
+        block_height: u32,
+        proof: Proof<AccumulatorHash>,
+        leaves: Vec<LeafContext>,
+        acc: &Pollard<AccumulatorHash>,
+    ) -> BlockIndex;
+}
+
+#[cfg(feature = "shinigami")]
+pub type AccumulatorHash = crate::udata::shinigami_udata::PoseidonHash;
+
 pub trait LeafCache: Sync + Send + Sized + 'static {
-    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData>;
-    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) -> bool;
+    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafContext>;
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafContext) -> bool;
     fn flush(&mut self) {}
     fn cache_size(&self) -> usize {
         0
     }
 }
 
-impl LeafCache for HashMap<OutPoint, LeafData> {
-    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafData> {
+impl LeafCache for HashMap<OutPoint, LeafContext> {
+    fn remove(&mut self, outpoint: &OutPoint) -> Option<LeafContext> {
         self.remove(outpoint)
     }
-    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafData) -> bool {
+
+    fn insert(&mut self, outpoint: OutPoint, leaf_data: LeafContext) -> bool {
         self.insert(outpoint, leaf_data);
         false
     }
 }
 
 /// All the state that the prover needs to keep track of
-pub struct Prover<LeafStorage: LeafCache> {
+pub struct Prover<LeafStorage: LeafCache, Storage: BlockStorage> {
     /// A reference to a file manager that holds the blocks on disk, using flat files.
-    files: Arc<RwLock<BlockFile>>,
+    files: Arc<RwLock<Storage>>,
     /// A reference to the RPC client that is used to query the blockchain.
     rpc: Box<dyn Blockchain>,
     /// The accumulator that holds the state of the utreexo accumulator.
-    acc: Pollard,
+    acc: Pollard<AccumulatorHash>,
     /// An index that keeps track of the blocks that are stored on disk, we need this
     /// to get the blocks from disk.
     storage: Arc<BlocksIndex>,
@@ -85,15 +93,15 @@ pub struct Prover<LeafStorage: LeafCache> {
     leaf_data: LeafStorage,
 }
 
-impl<LeafStorage: LeafCache> Prover<LeafStorage> {
+impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage> {
     /// Creates a new prover. It loads the accumulator from disk, if it exists.
     pub fn new(
         rpc: Box<dyn Blockchain>,
         index_database: Arc<BlocksIndex>,
-        files: Arc<RwLock<BlockFile>>,
+        files: Arc<RwLock<Storage>>,
         view: Arc<chainview::ChainView>,
         leaf_data: LeafStorage,
-    ) -> Prover<LeafStorage> {
+    ) -> Prover<LeafStorage, Storage> {
         let height = index_database.load_height() as u32;
         info!("Loaded height {}", height);
         info!("Loading accumulator data...");
@@ -108,18 +116,21 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             leaf_data,
         }
     }
+
     /// Tries to load the accumulator from disk. If it fails, it creates a new one.
-    fn try_from_disk() -> Pollard {
+    fn try_from_disk() -> Pollard<AccumulatorHash> {
         let Ok(file) = std::fs::File::open(crate::subdir("/pollard")) else {
-            return Pollard::new();
+            return Pollard::new_with_hash();
         };
 
         let reader = std::io::BufReader::new(file);
-        match Pollard::deserialize(reader) {
+        match Pollard::<AccumulatorHash>::deserialize(reader) {
             Ok(acc) => acc,
-            Err(_) => Pollard::new(),
+            Err(_) => Pollard::new_with_hash(),
         }
     }
+
+    #[cfg(feature = "api")]
     /// Handles the request from another module. It returns a response through the oneshot channel
     /// provided by the request sender. Errors are returned as strings, maybe this should be changed
     /// to a boxed error or something else.
@@ -291,7 +302,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
     pub fn keep_up(
         &mut self,
         stop: Arc<Mutex<bool>>,
-        mut receiver: Receiver<(
+        #[cfg(feature = "api")] mut receiver: Receiver<(
             Requests,
             futures::channel::oneshot::Sender<Result<Responses, String>>,
         )>,
@@ -303,11 +314,14 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                 self.shutdown();
                 break;
             }
+
+            #[cfg(feature = "api")]
             if let Ok(Some((req, res))) = receiver.try_next() {
                 let ret = self.handle_request(req).map_err(|e| e.to_string());
                 res.send(ret)
                     .map_err(|_| anyhow::anyhow!("Error sending response"))?;
             }
+
             if last_tip_update.elapsed().as_secs() > 10 {
                 if let Err(e) = self.check_tip(&mut last_tip_update) {
                     error!("Error checking tip: {}", e);
@@ -343,6 +357,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             self.view.save_height(block_hash, height)?;
 
             let block = self.rpc.get_block(block_hash)?;
+            
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
 
@@ -352,75 +367,49 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                 self.leaf_data.cache_size(),
                 block.txdata.len()
             );
-
-            let (proof, leaves) = self.process_block(&block, height);
-            let block = bitcoin::network::utreexo::UtreexoBlock {
-                block,
-                udata: Some(UData {
-                    remember_idx: vec![],
-                    proof,
-                    leaves,
-                }),
-            };
-            let index = self.files.write().unwrap().append(&block);
-            self.storage.append(index, block.block.block_hash());
+            let mtp = self.rpc.get_mtp(block.block_hash())?;
+            let (proof, leaves) = self.process_block(&block, height, mtp);
+            let index = self.files
+                .write()
+                .unwrap()
+                .save_block(&block, height, proof, leaves, &self.acc);
+            
+            self.storage.append(index, block.block_hash());
             self.height = height;
         }
         anyhow::Ok(())
     }
 
-    /// Returns what spk type this output is. We need this to build a compact leaf data.
-    fn get_spk_type(spk: &Script) -> ScriptPubkeyType {
-        if spk.is_p2pkh() {
-            ScriptPubkeyType::PubKeyHash
-        } else if spk.is_p2sh() {
-            ScriptPubkeyType::ScriptHash
-        } else if spk.is_v0_p2wpkh() {
-            ScriptPubkeyType::WitnessV0PubKeyHash
-        } else if spk.is_v0_p2wsh() {
-            ScriptPubkeyType::WitnessV0ScriptHash
-        } else {
-            ScriptPubkeyType::Other(spk.to_bytes().into_boxed_slice())
-        }
-    }
-
     /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
-    fn get_input_leaf_hash_from_rpc(rpc: &Box<dyn Blockchain>, input: &TxIn) -> Option<LeafData> {
+    fn get_input_leaf_hash_from_rpc(
+        rpc: &Box<dyn Blockchain>,
+        input: &TxIn,
+    ) -> Option<LeafContext> {
         let tx_info = rpc
             .get_raw_transaction_info(&input.previous_output.txid)
             .ok()?;
+
         let height = tx_info.height;
         let output = &tx_info.tx.output[input.previous_output.vout as usize];
-        let header_code = if tx_info.is_coinbase {
-            height << 1 | 1
-        } else {
-            height << 1
-        };
-        Some(LeafData {
+        let median_time_past = rpc.get_mtp(tx_info.blockhash?).ok()?;
+        
+        Some(LeafContext {
             block_hash: tx_info.blockhash?,
-            header_code,
-            prevout: OutPoint {
-                txid: input.previous_output.txid,
-                vout: input.previous_output.vout,
-            },
-            utxo: output.to_owned(),
+            median_time_past,
+            block_height: height,
+            is_coinbase: tx_info.is_coinbase,
+            pk_script: output.script_pubkey.clone(),
+            value: output.value,
+            vout: input.previous_output.vout,
+            txid: input.previous_output.txid,
         })
     }
 
-    fn get_full_input_leaf_data(
-        leaf_data: &mut LeafStorage,
-        input: &TxIn,
-        rpc: &Box<dyn Blockchain>,
-    ) -> Option<LeafData> {
-        leaf_data
-            .remove(&input.previous_output)
-            .or_else(|| Self::get_input_leaf_hash_from_rpc(rpc, input))
-    }
     /// Returns the leaf hash and the compact leaf data for a given input. If the leaf is not in
     /// leaf_data we will try to get it from the bitcoin core rpc.
-    fn get_input_leaf_hash(&mut self, input: &TxIn) -> (NodeHash, CompactLeafData) {
+    fn get_input_leaf_hash(&mut self, input: &TxIn) -> (AccumulatorHash, LeafContext) {
         let leaf = loop {
             match self
                 .leaf_data
@@ -435,16 +424,16 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
             }
         };
 
-        let compact_leaf = CompactLeafData {
-            spk_ty: Self::get_spk_type(&leaf.utxo.script_pubkey),
-            amount: leaf.utxo.value,
-            header_code: leaf.header_code,
-        };
-
-        (leaf.get_leaf_hashes(), compact_leaf)
+        (LeafData::get_leaf_hashes(&leaf), leaf)
     }
+
     /// Processes a block and returns the batch proof and the compact leaf data for the block.
-    fn process_block(&mut self, block: &Block, height: u32) -> (BatchProof, Vec<CompactLeafData>) {
+    fn process_block(
+        &mut self,
+        block: &Block,
+        height: u32,
+        mtp: u32,
+    ) -> (Proof<AccumulatorHash>, Vec<LeafContext>) {
         let mut inputs = Vec::new();
         let mut utxos = Vec::new();
         let mut compact_leaves = Vec::new();
@@ -462,23 +451,22 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
                     }
                 }
             }
+            
             for (idx, output) in tx.output.iter().enumerate() {
                 if !output.script_pubkey.is_provably_unspendable() {
-                    let header_code = if tx.is_coin_base() {
-                        height << 1 | 1
-                    } else {
-                        height << 1
-                    };
-                    let leaf = LeafData {
+                    let leaf = LeafContext {
                         block_hash: block.block_hash(),
-                        header_code,
-                        prevout: OutPoint {
-                            txid,
-                            vout: idx as u32,
-                        },
-                        utxo: output.to_owned(),
+                        median_time_past: mtp,
+                        txid,
+                        vout: idx as u32,
+                        value: output.value,
+                        pk_script: output.script_pubkey.clone(),
+                        is_coinbase: tx.is_coin_base(),
+                        block_height: height,
                     };
-                    utxos.push(leaf.get_leaf_hashes());
+
+                    utxos.push(LeafData::get_leaf_hashes(&leaf));
+
                     let flush = self.leaf_data.insert(
                         OutPoint {
                             txid,
@@ -508,17 +496,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 
         self.view.save_acc(ser_acc, block.block_hash());
 
-        (
-            BatchProof {
-                targets: proof.targets.iter().map(|target| VarInt(*target)).collect(),
-                hashes: proof
-                    .hashes
-                    .iter()
-                    .map(|hash| BlockHash::from_inner(**hash))
-                    .collect(),
-            },
-            compact_leaves,
-        )
+        (proof, compact_leaves)
     }
 }
 
@@ -526,7 +504,7 @@ impl<LeafStorage: LeafCache> Prover<LeafStorage> {
 /// response element.
 pub enum Requests {
     /// Get the proof for a given leaf hash.
-    GetProof(NodeHash),
+    GetProof(BitcoinNodeHash),
     /// Get the roots of the accumulator.
     GetRoots,
     /// Get a block at a given height. This method returns the block and utreexo data for it.
@@ -545,7 +523,7 @@ pub enum Responses {
     /// A utreexo proof
     Proof(Proof),
     /// The roots of the accumulator
-    Roots(Vec<NodeHash>),
+    Roots(Vec<BitcoinNodeHash>),
     /// A block and the utreexo data for it, serialized.
     Block(Vec<u8>),
     /// A transaction and a proof for all **outputs**
