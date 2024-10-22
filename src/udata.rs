@@ -6,6 +6,7 @@ use bitcoin::Txid;
 
 #[derive(Debug, Clone)]
 pub struct LeafContext {
+    #[allow(dead_code)]
     pub block_hash: BlockHash,
     pub txid: Txid,
     pub vout: u32,
@@ -154,20 +155,23 @@ pub mod shinigami_udata {
 
     use super::LeafContext;
 
+    #[derive(Debug, Clone)]
     pub struct ByteArray {
         pub data: Vec<Felt>,
         pub pending_word: Felt,
         pub pending_word_len: usize,
     }
-
+    
+    #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     pub struct ShinigamiLeafData {
-        pub txid: Txid,
-        pub vout: u32,
-        pub value: u64,
-        pub pk_script: ByteArray,
-        pub block_height: u32,
-        pub median_time_past: u32,
-        pub is_coinbase: bool,
+        txid: Txid,
+        vout: u32,
+        value: u64,
+        pk_script: ByteArray,
+        block_height: u32,
+        median_time_past: u32,
+        is_coinbase: bool,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -196,7 +200,7 @@ pub mod shinigami_udata {
     impl std::fmt::Display for PoseidonHash {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                PoseidonHash::Hash(h) => write!(f, "Hash({})", h),
+                PoseidonHash::Hash(h) => write!(f, "Hash({})", h.to_hex_string()),
                 PoseidonHash::Placeholder => write!(f, "Placeholder"),
                 PoseidonHash::Empty => write!(f, "Empty"),
             }
@@ -317,7 +321,8 @@ pub mod shinigami_udata {
     fn convert_spk_to_byte_array(pk_script: &Script) -> ByteArray {
         let mut iter = pk_script.as_bytes().chunks_exact(31);
         let mut data = vec![];
-
+        
+        #[allow(clippy::while_let_on_iterator)]
         while let Some(chunk) = iter.next() {
             let mut word = [0u8; 31];
             word.copy_from_slice(chunk);
@@ -328,7 +333,7 @@ pub mod shinigami_udata {
         let pending_word_len = pending_word.len();
         let pending_word = if pending_word_len > 0 {
             let mut word = [0u8; 31];
-            word[..pending_word_len].copy_from_slice(pending_word);
+            word[(31 - pending_word_len)..].copy_from_slice(pending_word);
             Felt::from_bytes_be_slice(&word)
         } else {
             Felt::from(0u64)
@@ -358,7 +363,7 @@ pub mod shinigami_udata {
             data_to_hash.push(Felt::from(data.block_height));
             data_to_hash.push(Felt::from(data.median_time_past));
             data_to_hash.push(Felt::from(data.is_coinbase as u64));
-
+            println!("{:#?}", data_to_hash);
             let leaf_hash = poseidon_hash_many(&data_to_hash);
 
             PoseidonHash::Hash(leaf_hash)
@@ -370,3 +375,25 @@ pub mod shinigami_udata {
 pub use bitcoin_leaf_data::BitcoinLeafData as LeafData;
 #[cfg(feature = "shinigami")]
 pub use shinigami_udata::ShinigamiLeafData as LeafData;
+
+#[cfg(all(feature = "shinigami", test))]
+mod shinigami_tests {
+    use super::LeafContext;
+
+    #[test]
+    fn test_node_hash() {
+        let leaf = LeafContext {
+            txid: "0437cd7f8525ceed2324359c2d0ba26006d92d856a9c20fa0241106ee5a597c9".parse().unwrap(),
+            vout: 0,
+            value: 5000000000,
+            pk_script:  "410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac".parse().unwrap(),
+            block_height: 9,
+            median_time_past: 1231473279,
+            is_coinbase: true,
+            block_hash: "00000000839a8e6886ab5951d76f4114754285bd7a81a48d0d722cb5b0c5e3a7".parse().unwrap(), // unused here
+        };
+
+        let leaf_hash = super::LeafData::get_leaf_hashes(&leaf);
+        println!("Leaf hash: {}", leaf_hash);
+    }
+}

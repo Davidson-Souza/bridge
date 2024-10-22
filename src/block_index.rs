@@ -48,7 +48,7 @@ pub struct BlocksIndex {
 impl BlocksIndex {
     /// Returns the index for a block, given its hash. If the block is not found, it returns None.
     #[allow(dead_code)]
-    pub fn get_index<'a>(&self, block: BlockHash) -> Option<BlockIndex> {
+    pub fn get_index<'a>(&'a self, block: BlockHash) -> Option<BlockIndex> {
         let bucket = self
             .database
             .bucket::<&'a [u8], IndexEntry>(Some("index"))
@@ -62,7 +62,7 @@ impl BlocksIndex {
     }
 
     /// Saves the height of the latest block we have in the index.
-    pub fn update_height<'a>(&self, height: usize) {
+    pub fn update_height<'a>(&'a self, height: usize) {
         let bucket = self
             .database
             .bucket::<&'a [u8], Vec<u8>>(Some("meta"))
@@ -75,7 +75,7 @@ impl BlocksIndex {
     }
 
     /// Returns the height of the latest block we have in the index.
-    pub fn load_height<'a>(&self) -> usize {
+    pub fn load_height<'a>(&'a self) -> usize {
         let bucket = self
             .database
             .bucket::<&'a [u8], Vec<u8>>(Some("meta"))
@@ -89,7 +89,7 @@ impl BlocksIndex {
     }
 
     /// Appends a new block entry to the index.
-    pub fn append<'a>(&self, index: BlockIndex, block: BlockHash) {
+    pub fn append<'a>(&'a self, index: BlockIndex, block: BlockHash) {
         let bucket = self
             .database
             .bucket::<&'a [u8], IndexEntry>(Some("index"))

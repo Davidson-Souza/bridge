@@ -49,7 +49,7 @@ clap = { version = "4.5.20", features = ["derive"] }
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
 
 [features]
-default = ["bitcoin", "node", "api"]
+default = ["shinigami"]
 esplora = ["reqwest"]
 bitcoin = []
 node = []

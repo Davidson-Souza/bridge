@@ -6,6 +6,7 @@
 //! uses a channel to receive requests and sends responses through a oneshot channel, provided
 //! by the request sender. Maybe there is a better way to do this, but this is a TODO for later.
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -95,6 +96,11 @@ pub struct Prover<LeafStorage: LeafCache, Storage: BlockStorage> {
     /// proofs for the utreexo accumulator. This is more like a cache, since it won't be
     /// persisted on shutdown.
     leaf_data: LeafStorage,
+    /// If set, we'll save a snapshot of the accumulator to disk every n blocks.
+    ///
+    /// The file will be named <height>.acc and can be used to start this software from
+    /// that height.
+    snapshot_acc_every: Option<u32>,
 }
 
 impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage> {
@@ -105,12 +111,16 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         files: Arc<RwLock<Storage>>,
         view: Arc<chainview::ChainView>,
         leaf_data: LeafStorage,
+        start_acc: Option<PathBuf>,
+        start_height: Option<u32>,
+        snapshot_acc_every: Option<u32>,
     ) -> Prover<LeafStorage, Storage> {
-        let height = index_database.load_height() as u32;
+        let height = start_height.unwrap_or_else(|| index_database.load_height() as u32);
         info!("Loaded height {}", height);
         info!("Loading accumulator data...");
-        let acc = Self::try_from_disk();
+        let acc = Self::try_from_disk(start_acc);
         Self {
+            snapshot_acc_every,
             rpc,
             acc,
             height,
@@ -122,7 +132,16 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     }
 
     /// Tries to load the accumulator from disk. If it fails, it creates a new one.
-    fn try_from_disk() -> Pollard<AccumulatorHash> {
+    fn try_from_disk(path: Option<PathBuf>) -> Pollard<AccumulatorHash> {
+        if let Some(path) = path {
+            let file = std::fs::File::open(&path).unwrap();
+            let reader = std::io::BufReader::new(file);
+            match Pollard::<AccumulatorHash>::deserialize(reader) {
+                Ok(acc) => return acc,
+                Err(e) => panic!("Failed to load accumulator at {path:?}, reson: {e:?}"),
+            }
+        }
+
         let Ok(file) = std::fs::File::open(crate::subdir("/pollard")) else {
             return Pollard::new_with_hash();
         };
@@ -274,7 +293,8 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
 
     /// Gracefully shuts down the prover. It saves the accumulator to disk and flushes the chainview.
     fn shutdown(&mut self) {
-        self.save_to_disk();
+        self.save_to_disk(None)
+            .expect("could not save the acc to disk");
         self.leaf_data.flush();
         self.view.flush();
     }
@@ -282,10 +302,16 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// Saves the accumulator to disk. This is done by serializing the accumulator to a file,
     /// the serialization is done by the rustreexo library and is a depth first traversal of the
     /// tree.
-    fn save_to_disk(&self) {
-        let file = std::fs::File::create(crate::subdir("/pollard")).unwrap();
+    fn save_to_disk(&self, height: Option<u32>) -> std::io::Result<()> {
+        let file = match height {
+            Some(height) => std::fs::File::create(crate::subdir(&format!("{}.acc", height)))?,
+            None => std::fs::File::create(crate::subdir("/pollard"))?,
+        };
+
         let mut writer = std::io::BufWriter::new(file);
         self.acc.serialize(&mut writer).unwrap();
+
+        Ok(())
     }
 
     /// A infinite loop that keeps the prover up to date with the blockchain. It handles requests
@@ -323,7 +349,8 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
 
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
-        self.save_to_disk();
+        self.save_to_disk(None)
+            .expect("could not save the acc to disk");
         self.storage.update_height(self.height as usize);
         Ok(())
     }
@@ -333,7 +360,8 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         if height > self.height {
             self.prove_range(self.height + 1, height)?;
 
-            self.save_to_disk();
+            self.save_to_disk(None)
+                .expect("could not save the acc to disk");
             self.storage.update_height(height as usize);
         }
         *last_tip_update = std::time::Instant::now();
@@ -369,6 +397,12 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
 
             self.storage.append(index, block.block_hash());
             self.height = height;
+            if let Some(n) = self.snapshot_acc_every {
+                if height % n == 0 {
+                    self.save_to_disk(Some(height))
+                        .expect("could not save the acc to disk");
+                }
+            }
         }
         anyhow::Ok(())
     }
@@ -377,7 +411,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
     fn get_input_leaf_hash_from_rpc(
-        rpc: &Box<dyn Blockchain>,
+        rpc: &dyn Blockchain,
         input: &TxIn,
     ) -> Option<LeafContext> {
         let tx_info = rpc
@@ -403,19 +437,10 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// Returns the leaf hash and the compact leaf data for a given input. If the leaf is not in
     /// leaf_data we will try to get it from the bitcoin core rpc.
     fn get_input_leaf_hash(&mut self, input: &TxIn) -> (AccumulatorHash, LeafContext) {
-        let leaf = loop {
-            match self
-                .leaf_data
-                .remove(&input.previous_output)
-                .or_else(|| Self::get_input_leaf_hash_from_rpc(&self.rpc, input))
-            {
-                Some(leaf) => break leaf,
-                None => {
-                    info!("Leaf not found in leaf_data, trying to get it from rpc");
-                    continue;
-                }
-            }
-        };
+        let leaf = self
+            .leaf_data
+            .remove(&input.previous_output)
+            .unwrap_or_else(|| Self::get_input_leaf_hash_from_rpc(&*self.rpc, input).unwrap());
 
         (LeafData::get_leaf_hashes(&leaf), leaf)
     }
@@ -470,7 +495,8 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
 
                     if flush {
                         self.leaf_data.flush();
-                        self.save_to_disk();
+                        self.save_to_disk(None)
+                            .expect("could not save the acc to disk");
                         self.storage.update_height(self.height as usize);
                     }
                 }
@@ -523,7 +549,8 @@ pub enum Responses {
     /// A transaction and a proof for all **outputs**
     Transaction((Transaction, Proof)),
     /// The CSN of the current acc
-    CSN(Stump),
+    #[allow(clippy::upper_case_acronyms)]
+    CNS(Stump),
     /// Multiple blocks and utreexo data for them.
     Blocks(Vec<Vec<u8>>),
     TransactionOut(Vec<TxOut>, Proof),
