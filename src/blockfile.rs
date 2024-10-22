@@ -19,13 +19,15 @@ use bitcoin::network::utreexo::BatchProof;
 use bitcoin::network::utreexo::CompactLeafData;
 use bitcoin::network::utreexo::ScriptPubkeyType;
 use bitcoin::network::utreexo::UData;
-use bitcoin::network::utreexo::UtreexoBlock as Block;
+use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Script;
 use bitcoin::VarInt;
 use mmap::MapOption;
 use mmap::MemoryMap;
 
+use crate::block_index::BlockIndex;
 use crate::prover::BlockStorage;
 
 /// A file that holds all blocks and proofs in a memory-mapped file.
@@ -76,7 +78,7 @@ impl BlockFile {
     }
 
     /// Appends a block to the file and returns the index of the block.
-    pub fn append(&mut self, block: &Block) -> BlockIndex {
+    pub fn append(&mut self, block: &UtreexoBlock) -> BlockIndex {
         // seek to the end of the file
         self.file.seek(std::io::SeekFrom::End(0)).unwrap();
         let size = block.consensus_encode(&mut self.file).unwrap();
@@ -113,30 +115,37 @@ impl BlockFile {
 
 impl BlockStorage for BlockFile {
     fn save_block(
-        &self,
-        block: bitcoin::Block,
-        block_height: u32,
+        &mut self,
+        block: &Block,
+        _block_height: u32,
         proof: rustreexo::accumulator::proof::Proof<crate::prover::AccumulatorHash>,
         leaves: Vec<crate::udata::LeafContext>,
-        acc: &rustreexo::accumulator::pollard::Pollard<crate::prover::AccumulatorHash>,
+        _acc: &rustreexo::accumulator::pollard::Pollard<crate::prover::AccumulatorHash>,
     ) -> BlockIndex {
         let batch_proof = BatchProof {
             targets: proof.targets.iter().map(|x| VarInt(*x)).collect(),
-            hashes: proof.hashes,
+            hashes: proof
+                .hashes
+                .iter()
+                .map(|x| BlockHash::from_inner(**x))
+                .collect(),
         };
-        
-        let leaves = leaves.into_iter().map(|leaf| {
-            let header_code = leaf.block_height << 1 | leaf.is_coinbase as u32;
-            
-            CompactLeafData {
-                header_code,
-                amount: leaf.value,
-                spk_ty: Self::get_spk_type(&leaf.pk_script),
-            }
-        }).collect();
+
+        let leaves = leaves
+            .into_iter()
+            .map(|leaf| {
+                let header_code = leaf.block_height << 1 | leaf.is_coinbase as u32;
+
+                CompactLeafData {
+                    header_code,
+                    amount: leaf.value,
+                    spk_ty: Self::get_spk_type(&leaf.pk_script),
+                }
+            })
+            .collect();
 
         let block = bitcoin::network::utreexo::UtreexoBlock {
-            block,
+            block: block.clone(),
             udata: Some(UData {
                 remember_idx: vec![],
                 proof: batch_proof,
@@ -146,5 +155,8 @@ impl BlockStorage for BlockFile {
 
         self.append(&block)
     }
-}
 
+    fn get_block(&self, index: BlockIndex) -> Option<Block> {
+        self.get_block(index)
+    }
+}

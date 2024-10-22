@@ -17,7 +17,10 @@ use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
+#[cfg(feature = "api")]
 use bitcoin::Txid;
+#[cfg(feature = "api")]
+use futures::channel::mpsc::Receiver;
 use log::error;
 use log::info;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -39,13 +42,14 @@ pub type AccumulatorHash = rustreexo::accumulator::node_hash::BitcoinNodeHash;
 
 pub trait BlockStorage {
     fn save_block(
-        &self,
+        &mut self,
         block: &Block,
         block_height: u32,
         proof: Proof<AccumulatorHash>,
         leaves: Vec<LeafContext>,
         acc: &Pollard<AccumulatorHash>,
     ) -> BlockIndex;
+    fn get_block(&self, index: BlockIndex) -> Option<Block>;
 }
 
 #[cfg(feature = "shinigami")]
@@ -130,11 +134,15 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         }
     }
 
-    #[cfg(feature = "api")]
     /// Handles the request from another module. It returns a response through the oneshot channel
     /// provided by the request sender. Errors are returned as strings, maybe this should be changed
     /// to a boxed error or something else.
+    #[cfg(feature = "api")]
     fn handle_request(&mut self, req: Requests) -> anyhow::Result<Responses> {
+        use bitcoin::Script;
+        use bitcoin::Sequence;
+        use bitcoin::Witness;
+
         match req {
             Requests::GetProof(node) => {
                 let proof = self
@@ -175,38 +183,28 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                     .get_transaction(txid)
                     .map_err(|_| anyhow::anyhow!("Transaction {} not found", txid))?;
 
-                let (outputs, hashes): (Vec<TxOut>, Vec<LeafData>) = tx
+                let (outputs, hashes): (Vec<TxOut>, Vec<AccumulatorHash>) = tx
                     .output
                     .iter()
                     .enumerate()
                     .flat_map(|(idx, output)| {
-                        let leaf = Self::get_full_input_leaf_data(
-                            &mut self.leaf_data,
-                            &TxIn {
-                                previous_output: OutPoint {
-                                    txid,
-                                    vout: idx as u32,
-                                },
-                                script_sig: Script::new(),
-                                sequence: Sequence::ZERO,
-                                witness: Witness::new(),
+                        let (hash, _) = self.get_input_leaf_hash(&TxIn {
+                            previous_output: OutPoint {
+                                txid,
+                                vout: idx as u32,
                             },
-                            &self.rpc,
-                        )?;
-
-                        Some((output.clone(), leaf))
+                            script_sig: Script::new(),
+                            sequence: Sequence::ZERO,
+                            witness: Witness::new(),
+                        });
+                        self.acc.prove(&[hash]).ok()?;
+                        Some((output.clone(), hash))
                     })
-                    .filter(|(_, hash)| self.acc.prove(&[hash.get_leaf_hashes()]).is_ok())
                     .unzip();
 
                 let proof = self
                     .acc
-                    .prove(
-                        &hashes
-                            .iter()
-                            .map(|x| x.get_leaf_hashes())
-                            .collect::<Vec<_>>(),
-                    )
+                    .prove(&hashes)
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
 
                 Ok(Responses::TransactionOut(outputs, proof))
@@ -219,36 +217,30 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                 // TODO: this is a bit of a hack, but it works for now.
                 // Rustreexo should have a way to check whether an element is in the
                 // pollard. We have this information in the map anyway.
-                let hashes: Vec<LeafData> = tx
+                let (_outputs, hashes): (Vec<TxOut>, Vec<AccumulatorHash>) = tx
                     .output
                     .iter()
                     .enumerate()
-                    .flat_map(|(idx, _)| {
-                        Self::get_full_input_leaf_data(
-                            &mut self.leaf_data,
-                            &TxIn {
-                                previous_output: OutPoint {
-                                    txid,
-                                    vout: idx as u32,
-                                },
-                                script_sig: Script::new(),
-                                sequence: Sequence::ZERO,
-                                witness: Witness::new(),
+                    .flat_map(|(idx, output)| {
+                        let (hash, _) = self.get_input_leaf_hash(&TxIn {
+                            previous_output: OutPoint {
+                                txid,
+                                vout: idx as u32,
                             },
-                            &self.rpc,
-                        )
+                            script_sig: Script::new(),
+                            sequence: Sequence::ZERO,
+                            witness: Witness::new(),
+                        });
+                        self.acc.prove(&[hash]).ok()?;
+                        Some((output.clone(), hash))
                     })
-                    .filter(|x| self.acc.prove(&[x.get_leaf_hashes()]).is_ok())
-                    .collect();
+                    .unzip();
+
                 let proof = self
                     .acc
-                    .prove(
-                        &hashes
-                            .iter()
-                            .map(|x| x.get_leaf_hashes())
-                            .collect::<Vec<_>>(),
-                    )
+                    .prove(&hashes)
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
+
                 Ok(Responses::Transaction((tx, proof)))
             }
             Requests::GetCSN => {
@@ -357,7 +349,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             self.view.save_height(block_hash, height)?;
 
             let block = self.rpc.get_block(block_hash)?;
-            
+
             self.view
                 .save_header(block_hash, serialize(&block.header))?;
 
@@ -369,11 +361,12 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             );
             let mtp = self.rpc.get_mtp(block.block_hash())?;
             let (proof, leaves) = self.process_block(&block, height, mtp);
-            let index = self.files
+            let index = self
+                .files
                 .write()
                 .unwrap()
                 .save_block(&block, height, proof, leaves, &self.acc);
-            
+
             self.storage.append(index, block.block_hash());
             self.height = height;
         }
@@ -394,7 +387,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         let height = tx_info.height;
         let output = &tx_info.tx.output[input.previous_output.vout as usize];
         let median_time_past = rpc.get_mtp(tx_info.blockhash?).ok()?;
-        
+
         Some(LeafContext {
             block_hash: tx_info.blockhash?,
             median_time_past,
@@ -451,7 +444,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                     }
                 }
             }
-            
+
             for (idx, output) in tx.output.iter().enumerate() {
                 if !output.script_pubkey.is_provably_unspendable() {
                     let leaf = LeafContext {
@@ -500,6 +493,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     }
 }
 
+#[cfg(feature = "api")]
 /// All requests we can send to the prover. The prover will respond with the corresponding
 /// response element.
 pub enum Requests {

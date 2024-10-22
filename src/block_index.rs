@@ -1,5 +1,5 @@
-use bitcoin::BlockHash;
 use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 
 /// We use this index to keep track of information held on flat files. Right now we only store the
 /// blocks in the file, but if we build things like compact block filters, we can reuse the
@@ -47,6 +47,7 @@ pub struct BlocksIndex {
 
 impl BlocksIndex {
     /// Returns the index for a block, given its hash. If the block is not found, it returns None.
+    #[allow(dead_code)]
     pub fn get_index<'a>(&self, block: BlockHash) -> Option<BlockIndex> {
         let bucket = self
             .database

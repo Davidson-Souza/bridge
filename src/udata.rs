@@ -29,6 +29,8 @@ pub mod bitcoin_leaf_data {
     use sha2::Digest;
     use sha2::Sha512_256;
 
+    use super::LeafContext;
+
     /// Leaf data is the data that is hashed when adding to utreexo state. It contains validation
     /// data and some commitments to make it harder to attack an utreexo-only node.
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -64,7 +66,12 @@ pub mod bitcoin_leaf_data {
     ];
 
     impl BitcoinLeafData {
-        pub fn get_leaf_hashes(&self) -> BitcoinNodeHash {
+        pub fn get_leaf_hashes(leaf: &LeafContext) -> BitcoinNodeHash {
+            let leaf_data = BitcoinLeafData::from(leaf.clone());
+            leaf_data.compute_hash()
+        }
+
+        fn compute_hash(&self) -> BitcoinNodeHash {
             let mut ser_utxo = vec![];
             let _ = self.utxo.consensus_encode(&mut ser_utxo);
             let leaf_hash = Sha512_256::new()
@@ -115,6 +122,23 @@ pub mod bitcoin_leaf_data {
             Ok(len)
         }
     }
+
+    impl From<LeafContext> for BitcoinLeafData {
+        fn from(value: LeafContext) -> Self {
+            BitcoinLeafData {
+                block_hash: value.block_hash,
+                prevout: OutPoint {
+                    txid: value.txid,
+                    vout: value.vout,
+                },
+                header_code: value.block_height << 1 | value.is_coinbase as u32,
+                utxo: TxOut {
+                    value: value.value,
+                    script_pubkey: value.pk_script,
+                },
+            }
+        }
+    }
 }
 
 #[cfg(feature = "shinigami")]
@@ -123,7 +147,7 @@ pub mod shinigami_udata {
     use bitcoin::Script;
     use bitcoin::Txid;
     use bitcoin_hashes::Hash;
-    use rustreexo::accumulator::node_hash::NodeHash;
+    use rustreexo::accumulator::node_hash::AccumulatorHash;
     use serde::Serialize;
     use starknet_crypto::poseidon_hash_many;
     use starknet_crypto::Felt;
@@ -181,7 +205,7 @@ pub mod shinigami_udata {
 
     // this is the implementation of the BitcoinNodeHash trait for our custom hash type. And it's the only
     // thing you need to do to use your custom hash type with the accumulator data structures.
-    impl NodeHash for PoseidonHash {
+    impl AccumulatorHash for PoseidonHash {
         // returns a new placeholder type such that is_placeholder returns true
         fn placeholder() -> Self {
             PoseidonHash::Placeholder
@@ -344,6 +368,5 @@ pub mod shinigami_udata {
 
 #[cfg(not(feature = "shinigami"))]
 pub use bitcoin_leaf_data::BitcoinLeafData as LeafData;
-
 #[cfg(feature = "shinigami")]
 pub use shinigami_udata::ShinigamiLeafData as LeafData;

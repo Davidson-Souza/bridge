@@ -17,8 +17,8 @@ use bitcoin::network::message_blockdata::Inventory;
 use log::error;
 use log::info;
 
+use crate::block_index::BlocksIndex;
 use crate::blockfile::BlockFile;
-use crate::blockfile::BlocksIndex;
 use crate::chainview::ChainView;
 use crate::try_and_log_error;
 
@@ -92,7 +92,7 @@ impl Peer {
                                 Some(block) => {
                                     let block = RawNetworkMessage {
                                         magic: request.magic,
-                                        payload: NetworkMessage::Block(block),
+                                        payload: NetworkMessage::Block(block.into()),
                                     };
                                     try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
@@ -124,7 +124,7 @@ impl Peer {
                                 Some(block) => {
                                     let block = RawNetworkMessage {
                                         magic: request.magic,
-                                        payload: NetworkMessage::Block(block.block.into()),
+                                        payload: NetworkMessage::Block(block.into()),
                                     };
                                     try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }

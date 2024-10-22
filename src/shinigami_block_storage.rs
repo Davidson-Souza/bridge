@@ -38,7 +38,7 @@ impl JsonBlockFiles {
 
 impl BlockStorage for JsonBlockFiles {
     fn save_block(
-        &self,
+        &mut self,
         _block: &Block,
         block_height: u32,
         proof: Proof<AccumulatorHash>,
@@ -53,20 +53,24 @@ impl BlockStorage for JsonBlockFiles {
             },
             inclusion_proof: proof,
         };
-        
+
         let subdir_name = block_height - (block_height % 10_000);
         let file_path = self.dir.join(subdir_name.to_string());
-        
-        DirBuilder::new().recursive(true).create(&file_path).unwrap();
-        
+
+        DirBuilder::new()
+            .recursive(true)
+            .create(&file_path)
+            .unwrap();
+
         let file_path = file_path.join(format!("{}.json", block_height));
         let mut file = File::create(file_path).unwrap();
 
         serde_json::to_writer(&mut file, &block_data).unwrap();
 
-        BlockIndex {
-            offset: 0,
-            size: 0,
-        }
+        BlockIndex { offset: 0, size: 0 }
+    }
+
+    fn get_block(&self, _index: BlockIndex) -> Option<Block> {
+        unimplemented!()
     }
 }

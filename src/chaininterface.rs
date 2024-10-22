@@ -70,12 +70,11 @@ impl Blockchain for Client {
             is_coinbase: tx_data.is_coinbase(),
         })
     }
-    
+
     fn get_mtp(&self, block_hash: BlockHash) -> Result<u32> {
         let info = self.get_block_info(&block_hash)?;
         Ok(info.mediantime.unwrap_or(info.time) as u32)
     }
-
 }
 #[derive(Debug)]
 pub struct TransactionInfo {
@@ -123,23 +122,23 @@ impl<T: Blockchain> Blockchain for &Box<T> {
     fn get_block(&self, block_hash: BlockHash) -> Result<Block> {
         (**self).get_block(block_hash)
     }
-    
+
     fn get_transaction(&self, txid: Txid) -> Result<Transaction> {
         (**self).get_transaction(txid)
     }
-    
+
     fn get_block_hash(&self, height: u64) -> Result<BlockHash> {
         (**self).get_block_hash(height)
     }
-    
+
     fn get_block_height(&self, block_hash: BlockHash) -> Result<u32> {
         (**self).get_block_height(block_hash)
     }
-    
+
     fn get_block_header(&self, block_hash: BlockHash) -> Result<BlockHeader> {
         (**self).get_block_header(block_hash)
     }
-    
+
     fn get_block_count(&self) -> Result<u64> {
         (**self).get_block_count()
     }

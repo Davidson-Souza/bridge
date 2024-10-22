@@ -10,8 +10,8 @@ use log::info;
 use log::warn;
 
 use crate::api;
+use crate::block_index::BlocksIndex;
 use crate::blockfile::BlockFile;
-use crate::blockfile::BlocksIndex;
 use crate::chainview;
 use crate::get_chain_provider;
 use crate::init_logger;

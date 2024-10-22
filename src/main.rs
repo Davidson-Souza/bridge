@@ -1,23 +1,43 @@
 //SPDX-License-Identifier: MIT
 
+#[cfg(all(feature = "shinigami", feature = "bitcoin"))]
+compile_error!("You can't have both shinigami and bitcoin features enabled at the same time");
+
+#[cfg(all(not(feature = "shinigami"), not(feature = "bitcoin")))]
+compile_error!("You must enable either the shinigami or the bitcoin feature");
+
+#[cfg(all(feature = "shinigami", feature = "api"))]
+compile_error!("This combination is not supported yet");
+
+#[cfg(all(feature = "shinigami", feature = "node"))]
+compile_error!("This combination is not supported yet");
+
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(not(feature = "shinigami"))]
+#[cfg(feature = "api")]
 mod api;
+
 #[cfg(not(feature = "shinigami"))]
 mod blockfile;
+
+#[cfg(feature = "esplora")]
+mod esplora;
+
+#[cfg(not(feature = "shinigami"))]
+mod leaf_cache;
+
+#[cfg(feature = "node")]
+mod node;
+
+mod prover;
+
+#[cfg(feature = "shinigami")]
+mod shinigami_block_storage;
+
 mod block_index;
 mod chaininterface;
 mod chainview;
-#[cfg(feature = "esplora")]
-mod esplora;
-#[cfg(not(feature = "shinigami"))]
-mod leaf_cache;
-#[cfg(not(feature = "shinigami"))]
-mod node;
-mod prover;
-mod shinigami_block_storage;
 mod udata;
 
 use std::env;
@@ -121,6 +141,7 @@ fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
     }
 }
 
+#[cfg(not(feature = "shinigami"))]
 macro_rules! try_and_log_error {
     ($op:expr) => {
         if let Err(e) = $op {
@@ -129,4 +150,5 @@ macro_rules! try_and_log_error {
     };
 }
 
+#[cfg(not(feature = "shinigami"))]
 pub(crate) use try_and_log_error;
