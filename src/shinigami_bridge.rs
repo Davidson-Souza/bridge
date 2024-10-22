@@ -5,11 +5,13 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 
 use actix_rt::signal::ctrl_c;
+use clap::Parser;
 use log::info;
 use log::warn;
 
 use crate::block_index::BlocksIndex;
 use crate::chainview;
+use crate::cli::CliArgs;
 use crate::get_chain_provider;
 use crate::init_logger;
 use crate::prover;
@@ -17,6 +19,7 @@ use crate::shinigami_block_storage::JsonBlockFiles;
 use crate::subdir;
 
 pub fn run_bridge() -> anyhow::Result<()> {
+    let cli_options = CliArgs::parse();
     fs::DirBuilder::new()
         .recursive(true)
         .create(subdir(""))
@@ -78,7 +81,16 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
     let leaf_data = HashMap::new();
-    let mut prover = prover::Prover::new(client, index_store, blocks, view, leaf_data);
+    let mut prover = prover::Prover::new(
+        client,
+        index_store,
+        blocks,
+        view,
+        leaf_data,
+        cli_options.initial_state_path.map(Into::into),
+        cli_options.start_height,
+        cli_options.acc_snapshot_every_n_blocks,
+    );
 
     info!("Starting p2p node");
 

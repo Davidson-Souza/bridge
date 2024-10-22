@@ -38,6 +38,7 @@ mod shinigami_block_storage;
 mod block_index;
 mod chaininterface;
 mod chainview;
+mod cli;
 mod udata;
 
 use std::env;
