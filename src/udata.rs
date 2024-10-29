@@ -357,13 +357,14 @@ pub mod shinigami_udata {
             data_to_hash.extend(convert_hash256_to_felt(txid));
             data_to_hash.push(Felt::from(data.vout));
             data_to_hash.push(Felt::from(data.value));
+            data_to_hash.push(Felt::from(pk_script.data.len()));
             data_to_hash.extend(pk_script.data);
             data_to_hash.push(pk_script.pending_word);
             data_to_hash.push(Felt::from(pk_script.pending_word_len as u64));
             data_to_hash.push(Felt::from(data.block_height));
             data_to_hash.push(Felt::from(data.median_time_past));
             data_to_hash.push(Felt::from(data.is_coinbase as u64));
-            println!("{:#?}", data_to_hash);
+            
             let leaf_hash = poseidon_hash_many(&data_to_hash);
 
             PoseidonHash::Hash(leaf_hash)
@@ -378,6 +379,10 @@ pub use shinigami_udata::ShinigamiLeafData as LeafData;
 
 #[cfg(all(feature = "shinigami", test))]
 mod shinigami_tests {
+    use starknet_crypto::Felt;
+
+    use crate::udata::shinigami_udata::PoseidonHash;
+
     use super::LeafContext;
 
     #[test]
@@ -394,6 +399,8 @@ mod shinigami_tests {
         };
 
         let leaf_hash = super::LeafData::get_leaf_hashes(&leaf);
-        println!("Leaf hash: {}", leaf_hash);
+        let expected = PoseidonHash::Hash(Felt::from_hex("3945D2584EE5EF0B482B70CD63E0E8CD18827CB348F839D1E6EB8ECBB2B397D").unwrap());
+        
+        assert_eq!(leaf_hash, expected);
     }
 }
