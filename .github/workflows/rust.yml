@@ -77,21 +77,3 @@ jobs:
         env:
           PWD: ${{ github.workspace }} # without it ci can't see env!("PWD")
 
-
-  build-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-docker-${{ hashFiles('Dockerfile') }}
-
-      - name: Build Docker image
-        run: |
-          docker buildx build --cache-to=type=local,dest=/tmp/.buildx-cache --cache-from=type=local,src=/tmp/.buildx-cache -t dlsz/bridge:latest .
