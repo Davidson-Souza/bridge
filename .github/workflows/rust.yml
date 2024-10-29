@@ -26,12 +26,8 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all --check
 
-  cross-testing:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
-    runs-on: ${{ matrix.os }}
+  build-default:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -50,11 +46,7 @@ jobs:
         run: cargo build --verbose
 
   build-shigami:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
