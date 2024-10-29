@@ -94,7 +94,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
         leaf_data,
         None,
         None,
-        None
+        None,
     );
     info!("Starting p2p node");
 
