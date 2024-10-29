@@ -410,10 +410,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// Pulls the [LeafData] from the bitcoin core rpc. We use this as fallback if we can't find
     /// the leaf in leaf_data. This method is slow and should only be used if we can't find the
     /// leaf in the leaf_data.
-    fn get_input_leaf_hash_from_rpc(
-        rpc: &dyn Blockchain,
-        input: &TxIn,
-    ) -> Option<LeafContext> {
+    fn get_input_leaf_hash_from_rpc(rpc: &dyn Blockchain, input: &TxIn) -> Option<LeafContext> {
         let tx_info = rpc
             .get_raw_transaction_info(&input.previous_output.txid)
             .ok()?;

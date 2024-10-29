@@ -161,7 +161,7 @@ pub mod shinigami_udata {
         pub pending_word: Felt,
         pub pending_word_len: usize,
     }
-    
+
     #[derive(Debug, Clone)]
     #[allow(dead_code)]
     pub struct ShinigamiLeafData {
@@ -321,7 +321,7 @@ pub mod shinigami_udata {
     fn convert_spk_to_byte_array(pk_script: &Script) -> ByteArray {
         let mut iter = pk_script.as_bytes().chunks_exact(31);
         let mut data = vec![];
-        
+
         #[allow(clippy::while_let_on_iterator)]
         while let Some(chunk) = iter.next() {
             let mut word = [0u8; 31];
@@ -364,7 +364,7 @@ pub mod shinigami_udata {
             data_to_hash.push(Felt::from(data.block_height));
             data_to_hash.push(Felt::from(data.median_time_past));
             data_to_hash.push(Felt::from(data.is_coinbase as u64));
-            
+
             let leaf_hash = poseidon_hash_many(&data_to_hash);
 
             PoseidonHash::Hash(leaf_hash)
@@ -381,9 +381,8 @@ pub use shinigami_udata::ShinigamiLeafData as LeafData;
 mod shinigami_tests {
     use starknet_crypto::Felt;
 
-    use crate::udata::shinigami_udata::PoseidonHash;
-
     use super::LeafContext;
+    use crate::udata::shinigami_udata::PoseidonHash;
 
     #[test]
     fn test_node_hash() {
@@ -399,8 +398,11 @@ mod shinigami_tests {
         };
 
         let leaf_hash = super::LeafData::get_leaf_hashes(&leaf);
-        let expected = PoseidonHash::Hash(Felt::from_hex("3945D2584EE5EF0B482B70CD63E0E8CD18827CB348F839D1E6EB8ECBB2B397D").unwrap());
-        
+        let expected = PoseidonHash::Hash(
+            Felt::from_hex("3945D2584EE5EF0B482B70CD63E0E8CD18827CB348F839D1E6EB8ECBB2B397D")
+                .unwrap(),
+        );
+
         assert_eq!(leaf_hash, expected);
     }
 }
