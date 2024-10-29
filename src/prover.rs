@@ -547,7 +547,7 @@ pub enum Responses {
     Transaction((Transaction, Proof)),
     /// The CSN of the current acc
     #[allow(clippy::upper_case_acronyms)]
-    CNS(Stump),
+    CSN(Stump),
     /// Multiple blocks and utreexo data for them.
     Blocks(Vec<Vec<u8>>),
     TransactionOut(Vec<TxOut>, Proof),

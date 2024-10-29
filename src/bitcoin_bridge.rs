@@ -92,6 +92,9 @@ pub fn run_bridge() -> anyhow::Result<()> {
         blocks.clone(),
         view.clone(),
         leaf_data,
+        None,
+        None,
+        None
     );
     info!("Starting p2p node");
 
