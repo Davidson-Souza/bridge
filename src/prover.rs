@@ -387,7 +387,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                 self.leaf_data.cache_size(),
                 block.txdata.len()
             );
-            let mtp = self.rpc.get_mtp(block.block_hash())?;
+            let mtp = self.rpc.get_mtp(block.header.prev_blockhash)?;
             let (proof, leaves) = self.process_block(&block, height, mtp);
             let index = self
                 .files
@@ -417,7 +417,12 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
 
         let height = tx_info.height;
         let output = &tx_info.tx.output[input.previous_output.vout as usize];
-        let median_time_past = rpc.get_mtp(tx_info.blockhash?).ok()?;
+        let prev_block = rpc
+            .get_block_header(tx_info.blockhash?)
+            .ok()?
+            .prev_blockhash;
+
+        let median_time_past = rpc.get_mtp(prev_block).ok()?;
 
         Some(LeafContext {
             block_hash: tx_info.blockhash?,
