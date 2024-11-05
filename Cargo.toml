@@ -46,6 +46,7 @@ starknet-crypto = { version = "0.7.2", optional = true }
 clap = { version = "4.5.20", features = ["derive"] }
 time = "0.3.36"
 ahash = "0.8.11"
+ctrlc = "3.4.5"
 [patch."https://github.com/rust-lang/crates.io-index"]
 bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
 

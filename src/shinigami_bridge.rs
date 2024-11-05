@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
-use actix_rt::signal::ctrl_c;
 use clap::Parser;
 use log::info;
 use log::warn;
@@ -81,6 +80,8 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
     let leaf_data = HashMap::new();
+    let kill_signal = Arc::new(Mutex::new(false));
+
     let mut prover = prover::Prover::new(
         client,
         index_store,
@@ -90,23 +91,16 @@ pub fn run_bridge() -> anyhow::Result<()> {
         cli_options.initial_state_path.map(Into::into),
         cli_options.start_height,
         cli_options.acc_snapshot_every_n_blocks,
+        kill_signal.clone(),
     );
-
-    info!("Starting p2p node");
-
-    let kill_signal = Arc::new(Mutex::new(false));
-    let kill_signal2 = kill_signal.clone();
 
     // Keep the prover running in the background, it will download blocks and
     // create proofs for them as they are mined.
     info!("Running prover");
-    std::thread::spawn(move || {
-        actix_rt::System::new().block_on(async {
-            let _ = ctrl_c().await;
-            warn!("Received a stop signal");
-            *kill_signal.lock().unwrap() = true;
-        })
-    });
+    ctrlc::set_handler(move || {
+        warn!("Received a stop signal");
+        *kill_signal.lock().unwrap() = true;
+    })?;
 
-    prover.keep_up(kill_signal2)
+    prover.keep_up()
 }
