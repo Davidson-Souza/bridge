@@ -70,7 +70,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // that are indexed by the index above. They are stored in the `blocks/` directory
     // and are serialized as bitcoin blocks, so we don't need to do any parsing
     // before sending to a peer.
-    let blocks = Arc::new(RwLock::new(JsonBlockFiles::new(subdir("blocks/").into())));
+    let blocks = Arc::new(RwLock::new(JsonBlockFiles::new(subdir("blocks/").into(), cli_options.block_files_granularity)));
 
     // The prover needs some way to pull blocks from a trusted source, we can use anything
     // implementing the [Blockchain] trait, for example a bitcoin core node or an esplora

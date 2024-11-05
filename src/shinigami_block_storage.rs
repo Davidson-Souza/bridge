@@ -28,11 +28,12 @@ pub struct BlockData {
 
 pub struct JsonBlockFiles {
     dir: PathBuf,
+    granularity: u32,
 }
 
 impl JsonBlockFiles {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+    pub fn new(dir: PathBuf, granularity: u32) -> Self {
+        Self { dir, granularity }
     }
 }
 
@@ -54,7 +55,7 @@ impl BlockStorage for JsonBlockFiles {
             inclusion_proof: proof,
         };
 
-        let subdir_name = block_height - (block_height % 10_000);
+        let subdir_name = block_height - (block_height % self.granularity);
         let file_path = self.dir.join(subdir_name.to_string());
 
         DirBuilder::new()
