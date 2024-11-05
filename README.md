@@ -94,7 +94,24 @@ There are a few environment variables that can be used to configure the bridge n
 - [ ] Support for tor onion services
 - [x] Support for ipv6
 - [ ] Push roots over nostr on every block
-... and more ...
+- [ ] ... and more ...
+
+## Feature flags
+
+We have a few feature flags that can be used to enable or disable some features of the bridge node. Here's a list of all available feature flags:
+ - `esplora`: Enables the use of esplora backends to grab blocks and transactions. This can replace the usage of Bitcoin Core as a backend.
+ - `node`: Enables a small p2p node that will serve blocks and transactions over the network to other nodes and clients.
+ - `api`: Enables the REST API that can be used to query the node for proofs.
+ - `shinigami`: This feature is used to enable compatibility with [starknet's Cairo prover](https://github.com/keep-starknet-strange/raito/) for the Bitcoin protocol. This will disable the node and API, use Poseidon as the accumulator hash function and save data in JSON files.
+
+The deafult features are `bitcoin`, `node` and `api`. To change this, you can use the `--no-default-features` flag when building the node. For example, to build with the `shinigami` feature, you can use the following command:
+
+```bash
+cargo build --release --no-default-features --features shinigami
+```
+
+If you don't provide either `bitcoin` or `shinigami`, you'll have a compile error. You also can't use both at the same time. The API and node,
+currently, are not compatible with the `shinigami` feature.
 
 ## License
 

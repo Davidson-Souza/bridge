@@ -21,7 +21,7 @@ use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::channel::mpsc::Sender;
 use futures::lock::Mutex;
 use futures::SinkExt;
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use serde::Deserialize;
 use serde::Serialize;
@@ -85,7 +85,7 @@ async fn get_tx_unspent(hash: web::Path<Txid>, data: web::Data<AppState>) -> imp
 /// it exists.
 async fn get_proof(hash: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
     let hash = hash.into_inner();
-    let hash = NodeHash::from_str(&hash);
+    let hash = BitcoinNodeHash::from_str(&hash);
 
     if let Err(e) = hash {
         return HttpResponse::BadRequest().body(format!("Invalid hash {e}"));
@@ -326,7 +326,7 @@ impl From<UtreexoBlock> for UBlock {
             hashes: proof
                 .hashes
                 .iter()
-                .map(|x| NodeHash::from(x.as_inner()))
+                .map(|x| BitcoinNodeHash::from(x.as_inner()))
                 .collect(),
             targets: proof.targets.iter().map(|x| x.0).collect(),
         }

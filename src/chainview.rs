@@ -10,6 +10,7 @@ pub struct ChainView {
     storage: Store,
 }
 
+#[allow(dead_code)] // FIXME: Remove this
 impl ChainView {
     pub fn new(storage: Store) -> Self {
         Self { storage }
