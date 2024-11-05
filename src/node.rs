@@ -237,7 +237,7 @@ impl Peer {
     }
     pub fn peer_loop(mut self) {
         loop {
-            if let Err(_) = self.handle_request() {
+            if self.handle_request().is_err() {
                 info!("Connection closed");
                 break;
             }

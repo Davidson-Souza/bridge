@@ -100,7 +100,7 @@ impl DiskLeafStorage {
         serialized.extend_from_slice(&serialize(&leaf_data.block_hash));
         serialized.extend_from_slice(&serialize(&leaf_data.is_coinbase));
         serialized.extend_from_slice(&serialize(&leaf_data.median_time_past));
-        serialized.extend_from_slice(&leaf_data.pk_script.as_bytes());
+        serialized.extend_from_slice(leaf_data.pk_script.as_bytes());
         serialized
     }
 
@@ -115,7 +115,7 @@ impl DiskLeafStorage {
                 continue;
             }
 
-            let serialized = Self::serialize_leaf_data(&leaf_data);
+            let serialized = Self::serialize_leaf_data(leaf_data);
             batch
                 .set(&serialize(outpoint), &serialized)
                 .expect("Failed to flush leaf cache");

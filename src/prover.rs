@@ -101,6 +101,8 @@ pub struct Prover<LeafStorage: LeafCache, Storage: BlockStorage> {
     /// The file will be named <height>.acc and can be used to start this software from
     /// that height.
     snapshot_acc_every: Option<u32>,
+    /// A flag that is set when the prover should shut down.
+    shutdown_flag: Arc<Mutex<bool>>,
 }
 
 impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage> {
@@ -114,6 +116,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         start_acc: Option<PathBuf>,
         start_height: Option<u32>,
         snapshot_acc_every: Option<u32>,
+        shutdown_flag: Arc<Mutex<bool>>,
     ) -> Prover<LeafStorage, Storage> {
         let height = start_height.unwrap_or_else(|| index_database.load_height() as u32);
         info!("Loaded height {}", height);
@@ -128,6 +131,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             files,
             view,
             leaf_data,
+            shutdown_flag,
         }
     }
 
@@ -319,7 +323,6 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// also how we create proofs for historical blocks.
     pub fn keep_up(
         &mut self,
-        stop: Arc<Mutex<bool>>,
         #[cfg(feature = "api")] mut receiver: Receiver<(
             Requests,
             futures::channel::oneshot::Sender<Result<Responses, String>>,
@@ -327,7 +330,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     ) -> anyhow::Result<()> {
         let mut last_tip_update = std::time::Instant::now();
         loop {
-            if *stop.lock().unwrap() {
+            if *self.shutdown_flag.lock().unwrap() {
                 info!("Shutting down prover");
                 self.shutdown();
                 break;
@@ -371,6 +374,10 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// Proves a range of blocks, may be just one block.
     pub fn prove_range(&mut self, start: u32, end: u32) -> anyhow::Result<()> {
         for height in start..=end {
+            if *self.shutdown_flag.lock().unwrap() {
+                break;
+            }
+
             let block_hash = self.rpc.get_block_hash(height as u64)?;
             // Update the local index
             self.view.save_block_hash(height, block_hash)?;

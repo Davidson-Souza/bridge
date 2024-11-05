@@ -85,7 +85,13 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
     let leaf_data = DiskLeafStorage::new(&subdir("leaf_data"));
-    //let leaf_data = HashMap::new();
+
+    // a signal used to stop the prover
+    let kill_signal = Arc::new(Mutex::new(false));
+
+    //let leaf_data = HashMap::new(); // In-memory leaf storage,
+    // faster than leaf_data but uses more memory
+
     let mut prover = prover::Prover::new(
         client,
         index_store.clone(),
@@ -95,7 +101,9 @@ pub fn run_bridge() -> anyhow::Result<()> {
         None,
         None,
         None,
+        kill_signal.clone(),
     );
+
     info!("Starting p2p node");
 
     // This is our implementation of the Bitcoin p2p protocol, it will listen
@@ -125,9 +133,6 @@ pub fn run_bridge() -> anyhow::Result<()> {
             .unwrap()
     });
 
-    let kill_signal = Arc::new(Mutex::new(false));
-    let kill_signal2 = kill_signal.clone();
-
     // Keep the prover running in the background, it will download blocks and
     // create proofs for them as they are mined.
     info!("Running prover");
@@ -139,5 +144,5 @@ pub fn run_bridge() -> anyhow::Result<()> {
         })
     });
 
-    prover.keep_up(kill_signal2, receiver)
+    prover.keep_up(receiver)
 }
