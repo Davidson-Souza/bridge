@@ -284,7 +284,7 @@ pub mod shinigami_udata {
         {
             match self {
                 PoseidonHash::Hash(h) => {
-                    let inner = h.to_raw();
+                    let inner = h.to_fixed_hex_string();
                     inner.serialize(serializer)
                 }
                 PoseidonHash::Placeholder => serializer.serialize_none(),
