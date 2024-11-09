@@ -79,7 +79,12 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // Create a prover, this module will download blocks from the bitcoin core
     // node and save them to disk. It will also create proofs for the blocks
     // and save them to disk.
+    #[cfg(not(feature = "memory-leaf-map"))]
+    let leaf_data = DiskLeafStorage::new(&subdir("leaf_data"));
+    
+    #[cfg(feature = "memory-leaf-map")]
     let leaf_data = HashMap::new();
+
     let kill_signal = Arc::new(Mutex::new(false));
 
     let mut prover = prover::Prover::new(
