@@ -13,6 +13,7 @@ use std::sync::RwLock;
 
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Encodable;
+use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
@@ -50,7 +51,7 @@ pub trait BlockStorage {
         leaves: Vec<LeafContext>,
         acc: &Pollard<AccumulatorHash>,
     ) -> BlockIndex;
-    fn get_block(&self, index: BlockIndex) -> Option<Block>;
+    fn get_block(&self, index: BlockIndex) -> Option<UtreexoBlock>;
 }
 
 #[cfg(feature = "shinigami")]
@@ -103,6 +104,8 @@ pub struct Prover<LeafStorage: LeafCache, Storage: BlockStorage> {
     snapshot_acc_every: Option<u32>,
     /// A flag that is set when the prover should shut down.
     shutdown_flag: Arc<Mutex<bool>>,
+    /// Only save proofs for blocks older than that
+    save_proofs_for_blocks_older_than: u32,
 }
 
 impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage> {
@@ -117,6 +120,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         start_height: Option<u32>,
         snapshot_acc_every: Option<u32>,
         shutdown_flag: Arc<Mutex<bool>>,
+        save_proofs_for_blocks_older_than: u32,
     ) -> Prover<LeafStorage, Storage> {
         let height = start_height.unwrap_or_else(|| index_database.load_height() as u32);
         info!("Loaded height {}", height);
@@ -132,6 +136,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             view,
             leaf_data,
             shutdown_flag,
+            save_proofs_for_blocks_older_than,
         }
     }
 
@@ -394,15 +399,19 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                 self.leaf_data.cache_size(),
                 block.txdata.len()
             );
+
             let mtp = self.rpc.get_mtp(block.header.prev_blockhash)?;
             let (proof, leaves) = self.process_block(&block, height, mtp);
-            let index = self
-                .files
-                .write()
-                .unwrap()
-                .save_block(&block, height, proof, leaves, &self.acc);
 
-            self.storage.append(index, block.block_hash());
+            if height > self.save_proofs_for_blocks_older_than {
+                let index = self
+                    .files
+                    .write()
+                    .unwrap()
+                    .save_block(&block, height, proof, leaves, &self.acc);
+                self.storage.append(index, block.block_hash());
+            }
+
             self.height = height;
             if let Some(n) = self.snapshot_acc_every {
                 if height % n == 0 {
@@ -411,6 +420,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                 }
             }
         }
+
         anyhow::Ok(())
     }
 
