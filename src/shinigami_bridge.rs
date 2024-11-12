@@ -13,6 +13,7 @@ use crate::chainview;
 use crate::cli::CliArgs;
 use crate::get_chain_provider;
 use crate::init_logger;
+use crate::leaf_cache::DiskLeafStorage;
 use crate::prover;
 use crate::shinigami_block_storage::JsonBlockFiles;
 use crate::subdir;
@@ -69,7 +70,10 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // that are indexed by the index above. They are stored in the `blocks/` directory
     // and are serialized as bitcoin blocks, so we don't need to do any parsing
     // before sending to a peer.
-    let blocks = Arc::new(RwLock::new(JsonBlockFiles::new(subdir("blocks/").into(), cli_options.block_files_granularity)));
+    let blocks = Arc::new(RwLock::new(JsonBlockFiles::new(
+        subdir("blocks/").into(),
+        cli_options.block_files_granularity,
+    )));
 
     // The prover needs some way to pull blocks from a trusted source, we can use anything
     // implementing the [Blockchain] trait, for example a bitcoin core node or an esplora
@@ -81,7 +85,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
     // and save them to disk.
     #[cfg(not(feature = "memory-leaf-map"))]
     let leaf_data = DiskLeafStorage::new(&subdir("leaf_data"));
-    
+
     #[cfg(feature = "memory-leaf-map")]
     let leaf_data = HashMap::new();
 
@@ -97,6 +101,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
         cli_options.start_height,
         cli_options.acc_snapshot_every_n_blocks,
         kill_signal.clone(),
+        cli_options.save_proofs_after.unwrap_or(0),
     );
 
     // Keep the prover running in the background, it will download blocks and

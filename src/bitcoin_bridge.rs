@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 
 use actix_rt::signal::ctrl_c;
+use clap::Parser;
 use futures::channel::mpsc::channel;
 use log::info;
 use log::warn;
@@ -13,6 +14,7 @@ use crate::api;
 use crate::block_index::BlocksIndex;
 use crate::blockfile::BlockFile;
 use crate::chainview;
+use crate::cli::CliArgs;
 use crate::get_chain_provider;
 use crate::init_logger;
 use crate::leaf_cache::DiskLeafStorage;
@@ -22,6 +24,7 @@ use crate::prover;
 use crate::subdir;
 
 pub fn run_bridge() -> anyhow::Result<()> {
+    let cli_options = CliArgs::parse();
     fs::DirBuilder::new()
         .recursive(true)
         .create(subdir(""))
@@ -98,10 +101,11 @@ pub fn run_bridge() -> anyhow::Result<()> {
         blocks.clone(),
         view.clone(),
         leaf_data,
-        None,
-        None,
-        None,
+        cli_options.initial_state_path.map(Into::into),
+        cli_options.start_height,
+        cli_options.acc_snapshot_every_n_blocks,
         kill_signal.clone(),
+        cli_options.save_proofs_after.unwrap_or(0),
     );
 
     info!("Starting p2p node");

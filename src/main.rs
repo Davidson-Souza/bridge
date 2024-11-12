@@ -24,9 +24,6 @@ mod blockfile;
 #[cfg(feature = "esplora")]
 mod esplora;
 
-#[cfg(not(feature = "shinigami"))]
-mod leaf_cache;
-
 #[cfg(feature = "node")]
 mod node;
 
@@ -39,6 +36,7 @@ mod block_index;
 mod chaininterface;
 mod chainview;
 mod cli;
+mod leaf_cache;
 mod udata;
 
 use std::env;

@@ -6,7 +6,7 @@ pub struct CliArgs {
     ///
     /// Notice that this requires passing the initial state path, that should point to a valid
     /// accumulator state at the specified height.
-    #[clap(long, requires("initial-state-path"))]
+    #[clap(long, requires("initial_state_path"))]
     pub start_height: Option<u32>,
     /// The path to the initial state file. This file should contain the accumulator state at the
     /// specified height.
@@ -23,4 +23,10 @@ pub struct CliArgs {
     /// range of blocks that will be saved in each directory. The default value is 10_000.
     #[clap(long, short = 'g', default_value_t = 10_000)]
     pub block_files_granularity: u32,
+
+    /// If you don't want to save proofs for very old blocks, you can set this options with
+    /// the number of blocks you want to keep, and we'll only keep proofs for blocks that are
+    /// newer than that.
+    #[clap(long)]
+    pub save_proofs_after: Option<u32>,
 }

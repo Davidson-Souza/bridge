@@ -2,6 +2,7 @@ use std::fs::DirBuilder;
 use std::fs::File;
 use std::path::PathBuf;
 
+use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use rustreexo::accumulator::pollard::Pollard;
 use rustreexo::accumulator::proof::Proof;
@@ -71,7 +72,7 @@ impl BlockStorage for JsonBlockFiles {
         BlockIndex { offset: 0, size: 0 }
     }
 
-    fn get_block(&self, _index: BlockIndex) -> Option<Block> {
+    fn get_block(&self, _index: BlockIndex) -> Option<UtreexoBlock> {
         unimplemented!()
     }
 }

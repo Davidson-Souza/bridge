@@ -71,9 +71,13 @@ impl BlockFile {
     }
 
     /// Returns a block at the given position.
-    pub fn get_block(&self, index: BlockIndex) -> Option<Block> {
+    pub fn get_block(&self, index: BlockIndex) -> Option<UtreexoBlock> {
         unsafe {
-            Block::consensus_decode(&mut slice::from_raw_parts(self.read(&index), index.size)).ok()
+            UtreexoBlock::consensus_decode(&mut slice::from_raw_parts(
+                self.read(&index),
+                index.size,
+            ))
+            .ok()
         }
     }
 
@@ -156,7 +160,7 @@ impl BlockStorage for BlockFile {
         self.append(&block)
     }
 
-    fn get_block(&self, index: BlockIndex) -> Option<Block> {
+    fn get_block(&self, index: BlockIndex) -> Option<UtreexoBlock> {
         self.get_block(index)
     }
 }
