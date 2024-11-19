@@ -7,6 +7,7 @@
 //! by the request sender. Maybe there is a better way to do this, but this is a TODO for later.
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -15,6 +16,7 @@ use bitcoin::consensus::serialize;
 use bitcoin::consensus::Encodable;
 use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
+use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
@@ -106,6 +108,8 @@ pub struct Prover<LeafStorage: LeafCache, Storage: BlockStorage> {
     shutdown_flag: Arc<Mutex<bool>>,
     /// Only save proofs for blocks older than that
     save_proofs_for_blocks_older_than: u32,
+    block_notification: Sender<BlockHash>,
+    ibd: bool,
 }
 
 impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage> {
@@ -121,6 +125,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         snapshot_acc_every: Option<u32>,
         shutdown_flag: Arc<Mutex<bool>>,
         save_proofs_for_blocks_older_than: u32,
+        block_notification: Sender<BlockHash>,
     ) -> Prover<LeafStorage, Storage> {
         let height = start_height.unwrap_or_else(|| index_database.load_height() as u32);
         info!("Loaded height {}", height);
@@ -137,6 +142,8 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             leaf_data,
             shutdown_flag,
             save_proofs_for_blocks_older_than,
+            block_notification,
+            ibd: true,
         }
     }
 
@@ -372,6 +379,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                 .expect("could not save the acc to disk");
             self.storage.update_height(height as usize);
         }
+        self.ibd = false; // we'll flip it once, and keep it false for the rest of the time
         *last_tip_update = std::time::Instant::now();
         Ok(())
     }
@@ -418,6 +426,11 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                     self.save_to_disk(Some(height))
                         .expect("could not save the acc to disk");
                 }
+            }
+
+            if !self.ibd {
+                // only notify when we're not in IBD
+                self.block_notification.send(block.block_hash()).unwrap();
             }
         }
 

@@ -95,6 +95,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
     //let leaf_data = HashMap::new(); // In-memory leaf storage,
     // faster than leaf_data but uses more memory
 
+    let (block_notifier_tx, block_notifier_rx) = std::sync::mpsc::channel();
     let mut prover = prover::Prover::new(
         client,
         index_store.clone(),
@@ -106,6 +107,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
         cli_options.acc_snapshot_every_n_blocks,
         kill_signal.clone(),
         cli_options.save_proofs_after.unwrap_or(0),
+        block_notifier_tx,
     );
 
     info!("Starting p2p node");
@@ -120,7 +122,16 @@ pub fn run_bridge() -> anyhow::Result<()> {
     );
 
     let listener = std::net::TcpListener::bind(p2p_address).unwrap();
-    let node = node::Node::new(listener, blocks, index_store, view.clone());
+
+    let node = node::Node::new(
+        listener,
+        blocks,
+        index_store,
+        view.clone(),
+        block_notifier_rx,
+        cli_options.network.magic(),
+    );
+
     std::thread::spawn(move || {
         Node::accept_connections(node);
     });

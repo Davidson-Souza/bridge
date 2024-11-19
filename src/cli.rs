@@ -1,4 +1,25 @@
 use clap::Parser;
+use clap::ValueEnum;
+
+#[derive(Debug, Default, Clone, Copy, ValueEnum)]
+pub enum Network {
+    #[default]
+    Mainnet,
+    Testnet3,
+    Signet,
+    Regtest,
+}
+
+impl Network {
+    pub fn magic(&self) -> u32 {
+        match self {
+            Network::Mainnet => bitcoin::Network::Bitcoin.magic(),
+            Network::Testnet3 => bitcoin::Network::Testnet.magic(),
+            Network::Signet => bitcoin::Network::Signet.magic(),
+            Network::Regtest => bitcoin::Network::Regtest.magic(),
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 pub struct CliArgs {
@@ -29,4 +50,8 @@ pub struct CliArgs {
     /// newer than that.
     #[clap(long)]
     pub save_proofs_after: Option<u32>,
+
+    /// The network we are operating on
+    #[clap(long, short = 'n', default_value = "mainnet")]
+    pub network: Network,
 }

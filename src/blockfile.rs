@@ -50,6 +50,7 @@ impl BlockFile {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&path)?;
 
         let pos = file.seek(std::io::SeekFrom::End(0))?;

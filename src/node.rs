@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::io::Write;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -14,6 +15,7 @@ use bitcoin::network::constants::ServiceFlags;
 use bitcoin::network::message::NetworkMessage;
 use bitcoin::network::message::RawNetworkMessage;
 use bitcoin::network::message_blockdata::Inventory;
+use bitcoin::BlockHash;
 use log::error;
 use log::info;
 
@@ -29,6 +31,7 @@ pub struct Node {
     proof_backend: Arc<RwLock<BlockFile>>,
     proof_index: Arc<BlocksIndex>,
     chainview: Arc<ChainView>,
+    sockets: Arc<RwLock<Vec<TcpStream>>>,
 }
 
 pub struct Peer {
@@ -92,7 +95,7 @@ impl Peer {
                                 Some(block) => {
                                     let block = RawNetworkMessage {
                                         magic: request.magic,
-                                        payload: NetworkMessage::Block(block.into()),
+                                        payload: NetworkMessage::Block(block),
                                     };
                                     try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
@@ -124,7 +127,7 @@ impl Peer {
                                 Some(block) => {
                                     let block = RawNetworkMessage {
                                         magic: request.magic,
-                                        payload: NetworkMessage::Block(block.into()),
+                                        payload: NetworkMessage::Block(block),
                                     };
                                     try_and_log_error!(block.consensus_encode(&mut blocks));
                                 }
@@ -245,35 +248,79 @@ impl Peer {
     }
 }
 
-impl<'a> Node {
+impl Node {
     pub fn new(
         listener: TcpListener,
         proof_backend: Arc<RwLock<BlockFile>>,
         proof_index: Arc<BlocksIndex>,
         view: Arc<ChainView>,
+        new_blocks: Receiver<BlockHash>,
+        magic: u32,
     ) -> Self {
+        let sockets = Arc::new(RwLock::new(vec![]));
+        let closure_sockets = sockets.clone();
+
+        std::thread::spawn(move || {
+            Self::notify_loop(new_blocks, closure_sockets, magic);
+        });
+
         Self {
             listener,
             proof_backend,
             proof_index,
             chainview: view,
+            sockets,
+        }
+    }
+
+    pub fn notify_loop(
+        new_blocks: Receiver<BlockHash>,
+        sockets: Arc<RwLock<Vec<TcpStream>>>,
+        magic: u32,
+    ) {
+        loop {
+            let Ok(block_hash) = new_blocks.recv() else {
+                continue;
+            };
+
+            info!("New block: {}", block_hash);
+            let mut sockets = sockets.write().unwrap();
+            for pos in 0..(sockets.len()) {
+                let inv = RawNetworkMessage {
+                    magic,
+                    payload: NetworkMessage::Inv(vec![Inventory::Block(block_hash)]),
+                };
+
+                let socket = &mut sockets[pos];
+                if inv.consensus_encode(&mut *socket).is_err() {
+                    error!("Error sending inv to peer {}", pos);
+                    sockets.remove(pos);
+                }
+            }
         }
     }
 
     pub fn accept_connections(self) {
-        while let Ok((stream, addr)) = self.listener.accept() {
-            info!("New connection from {}", addr);
-            let proof_backend = self.proof_backend.clone();
-            let proof_index = self.proof_index.clone();
-            let peer = Peer::new(
-                stream,
-                addr.to_string(),
-                addr.to_string(),
-                proof_backend,
-                proof_index,
-                self.chainview.clone(),
-            );
-            std::thread::spawn(move || peer.peer_loop());
+        loop {
+            if let Ok((stream, addr)) = self.listener.accept() {
+                info!("New connection from {}", addr);
+                let proof_backend = self.proof_backend.clone();
+                let proof_index = self.proof_index.clone();
+                self.sockets
+                    .write()
+                    .unwrap()
+                    .push(stream.try_clone().unwrap());
+
+                let peer = Peer::new(
+                    stream,
+                    addr.to_string(),
+                    addr.to_string(),
+                    proof_backend,
+                    proof_index,
+                    self.chainview.clone(),
+                );
+                std::thread::spawn(move || peer.peer_loop());
+            }
         }
     }
 }
