@@ -2,7 +2,6 @@ use std::fs::DirBuilder;
 use std::fs::File;
 use std::path::PathBuf;
 
-use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use rustreexo::accumulator::pollard::Pollard;
 use rustreexo::accumulator::proof::Proof;
@@ -13,6 +12,7 @@ use crate::prover::AccumulatorHash;
 use crate::prover::BlockStorage;
 use crate::udata::shinigami_udata::PoseidonHash;
 use crate::udata::LeafContext;
+use crate::udata::UtreexoBlock;
 
 #[derive(Debug, Serialize)]
 pub struct UtreexoState {

@@ -14,10 +14,10 @@ use std::sync::RwLock;
 
 use bitcoin::consensus::serialize;
 use bitcoin::consensus::Encodable;
-use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
+use bitcoin::Script;
 use bitcoin::Transaction;
 use bitcoin::TxIn;
 use bitcoin::TxOut;
@@ -40,6 +40,7 @@ use crate::chaininterface::Blockchain;
 use crate::chainview;
 use crate::udata::LeafContext;
 use crate::udata::LeafData;
+use crate::udata::UtreexoBlock;
 
 #[cfg(not(feature = "shinigami"))]
 pub type AccumulatorHash = rustreexo::accumulator::node_hash::BitcoinNodeHash;
@@ -174,7 +175,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
     /// to a boxed error or something else.
     #[cfg(feature = "api")]
     fn handle_request(&mut self, req: Requests) -> anyhow::Result<Responses> {
-        use bitcoin::Script;
+        use bitcoin::ScriptBuf;
         use bitcoin::Sequence;
         use bitcoin::Witness;
 
@@ -228,7 +229,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                                 txid,
                                 vout: idx as u32,
                             },
-                            script_sig: Script::new(),
+                            script_sig: ScriptBuf::new(),
                             sequence: Sequence::ZERO,
                             witness: Witness::new(),
                         });
@@ -262,7 +263,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                                 txid,
                                 vout: idx as u32,
                             },
-                            script_sig: Script::new(),
+                            script_sig: ScriptBuf::new(),
                             sequence: Sequence::ZERO,
                             witness: Witness::new(),
                         });
@@ -460,7 +461,7 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             block_height: height,
             is_coinbase: tx_info.is_coinbase,
             pk_script: output.script_pubkey.clone(),
-            value: output.value,
+            value: output.value.to_sat(),
             vout: input.previous_output.vout,
             txid: input.previous_output.txid,
         })
@@ -477,6 +478,18 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         (LeafData::get_leaf_hashes(&leaf), leaf)
     }
 
+    fn is_unspendable(script: &Script) -> bool {
+        if script.len() > 10_000 {
+            return true;
+        }
+
+        if !script.is_empty() && script.as_bytes()[0] == 0x6a {
+            return true;
+        }
+
+        false
+    }
+
     /// Processes a block and returns the batch proof and the compact leaf data for the block.
     fn process_block(
         &mut self,
@@ -489,9 +502,9 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
         let mut compact_leaves = Vec::new();
 
         for tx in block.txdata.iter() {
-            let txid = tx.txid();
+            let txid = tx.compute_txid();
             for input in tx.input.iter() {
-                if !tx.is_coin_base() {
+                if !tx.is_coinbase() {
                     let (hash, compact_leaf) = self.get_input_leaf_hash(input);
                     if let Some(idx) = utxos.iter().position(|h| *h == hash) {
                         utxos.remove(idx);
@@ -503,15 +516,15 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
             }
 
             for (idx, output) in tx.output.iter().enumerate() {
-                if !output.script_pubkey.is_provably_unspendable() {
+                if !Self::is_unspendable(&output.script_pubkey) {
                     let leaf = LeafContext {
                         block_hash: block.block_hash(),
                         median_time_past: mtp,
                         txid,
                         vout: idx as u32,
-                        value: output.value,
+                        value: output.value.to_sat(),
                         pk_script: output.script_pubkey.clone(),
-                        is_coinbase: tx.is_coin_base(),
+                        is_coinbase: tx.is_coinbase(),
                         block_height: height,
                     };
 

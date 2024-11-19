@@ -54,7 +54,7 @@ impl BlocksIndex {
             .bucket::<&'a [u8], IndexEntry>(Some("index"))
             .unwrap();
 
-        let key: [u8; 32] = block.into_inner();
+        let key: [u8; 32] = *block.as_byte_array();
         match bucket.get(&key.as_slice()) {
             Ok(Some(IndexEntry::Index(index))) => Some(index),
             _ => None,
@@ -94,7 +94,7 @@ impl BlocksIndex {
             .database
             .bucket::<&'a [u8], IndexEntry>(Some("index"))
             .unwrap();
-        let key: [u8; 32] = block.into_inner();
+        let key: [u8; 32] = *block.as_byte_array();
         bucket
             .set(&key.as_slice(), &IndexEntry::Index(index))
             .expect("Failed to write index");

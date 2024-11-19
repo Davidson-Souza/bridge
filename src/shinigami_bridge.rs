@@ -1,5 +1,7 @@
+#[cfg(feature = "memory-leaf-map")]
 use std::collections::HashMap;
 use std::fs;
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -90,7 +92,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
     let leaf_data = HashMap::new();
 
     let kill_signal = Arc::new(Mutex::new(false));
-
+    let (sender, recv) = channel();
     let mut prover = prover::Prover::new(
         client,
         index_store,
@@ -102,6 +104,7 @@ pub fn run_bridge() -> anyhow::Result<()> {
         cli_options.acc_snapshot_every_n_blocks,
         kill_signal.clone(),
         cli_options.save_proofs_after.unwrap_or(0),
+        sender,
     );
 
     // Keep the prover running in the background, it will download blocks and
@@ -112,5 +115,8 @@ pub fn run_bridge() -> anyhow::Result<()> {
         *kill_signal.lock().unwrap() = true;
     })?;
 
-    prover.keep_up()
+    prover.keep_up()?;
+    drop(recv); // Don't let the receiver drop early, this will cause trouble inside the prover
+
+    Ok(())
 }

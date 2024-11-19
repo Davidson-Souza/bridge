@@ -7,10 +7,11 @@
 use std::fmt::Display;
 
 use anyhow::Result;
+use bitcoin::block::Header;
 use bitcoin::consensus;
+use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin_hashes::Hash;
 use reqwest::blocking::Client;
 
 use crate::chaininterface::Blockchain;
@@ -60,7 +61,7 @@ impl Blockchain for EsploraBlockchain {
         Ok(height as u32)
     }
 
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<bitcoin::BlockHeader> {
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<Header> {
         let url = format!("{}/block/{}/header", self.url, block_hash);
         let header = self.client.get(&url).send()?.text()?;
         let header: serde_json::Value = serde_json::from_str(&header)?;
@@ -68,7 +69,7 @@ impl Blockchain for EsploraBlockchain {
             return Err(anyhow::anyhow!("No header found"));
         };
         let header = hex::decode(header)?;
-        Ok(consensus::deserialize::<bitcoin::BlockHeader>(&header).unwrap())
+        Ok(consensus::deserialize::<Header>(&header).unwrap())
     }
 
     fn get_block_count(&self) -> Result<u64> {
@@ -96,6 +97,11 @@ impl Blockchain for EsploraBlockchain {
             height: tx["block_height"].as_u64().unwrap_or(0) as u32,
             tx: consensus::deserialize(&hex::decode(tx_hex)?)?,
         })
+    }
+
+    fn get_mtp(&self, _block_hash: BlockHash) -> Result<u32> {
+        // esplora does not have a way to get the median time past
+        Ok(0)
     }
 }
 #[derive(Debug)]

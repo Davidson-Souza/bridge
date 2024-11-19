@@ -7,9 +7,9 @@
 
 use anyhow::Ok;
 use anyhow::Result;
+use bitcoin::block::Header;
 use bitcoin::Block;
 use bitcoin::BlockHash;
-use bitcoin::BlockHeader;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoincore_rpc::Client;
@@ -25,7 +25,7 @@ pub trait Blockchain {
     /// Returns the height of the block with the given hash.
     fn get_block_height(&self, block_hash: BlockHash) -> Result<u32>;
     /// Returns the block header of the block with the given hash.
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<BlockHeader>;
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<Header>;
     /// Returns how many blocks are in the blockchain.
     fn get_block_count(&self) -> Result<u64>;
     /// Returns the raw transaction info, given a transaction id.
@@ -52,7 +52,7 @@ impl Blockchain for Client {
         Ok(info.height as u32)
     }
 
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<BlockHeader> {
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<Header> {
         Ok(<Self as RpcApi>::get_block_header(self, &block_hash)?)
     }
 
@@ -101,7 +101,7 @@ impl<T: Blockchain + Sized> Blockchain for Box<T> {
         (**self).get_block_height(block_hash)
     }
 
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<BlockHeader> {
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<Header> {
         (**self).get_block_header(block_hash)
     }
 
@@ -135,7 +135,7 @@ impl<T: Blockchain> Blockchain for &Box<T> {
         (**self).get_block_height(block_hash)
     }
 
-    fn get_block_header(&self, block_hash: BlockHash) -> Result<BlockHeader> {
+    fn get_block_header(&self, block_hash: BlockHash) -> Result<Header> {
         (**self).get_block_header(block_hash)
     }
 

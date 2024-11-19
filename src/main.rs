@@ -12,6 +12,9 @@ compile_error!("This combination is not supported yet");
 #[cfg(all(feature = "shinigami", feature = "node"))]
 compile_error!("This combination is not supported yet");
 
+#[cfg(all(feature = "shinigami", feature = "esplora"))]
+compile_error!("This combination is not supported yet");
+
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
