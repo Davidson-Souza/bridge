@@ -12,11 +12,10 @@ use actix_web::HttpResponse;
 use actix_web::HttpServer;
 use actix_web::Responder;
 use bitcoin::consensus::deserialize;
-use bitcoin::network::utreexo::UtreexoBlock;
+use bitcoin::hashes::Hash;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Txid;
-use bitcoin_hashes::Hash;
 use bitcoincore_rpc::jsonrpc::serde_json::json;
 use futures::channel::mpsc::Sender;
 use futures::lock::Mutex;
@@ -29,16 +28,21 @@ use serde::Serialize;
 use crate::chainview::ChainView;
 use crate::prover::Requests;
 use crate::prover::Responses;
+use crate::udata::CompactLeafData;
+use crate::udata::UtreexoBlock;
+
+type SenderCh = Mutex<
+    Sender<(
+        Requests,
+        futures::channel::oneshot::Sender<Result<Responses, String>>,
+    )>,
+>;
+
 /// This is the state of the actix-web server that will be passed as reference by each
 /// callback function. It contains a sender that can be used to send requests to the prover.
 struct AppState {
     /// Sender to send requests to the prover.
-    sender: Mutex<
-        Sender<(
-            Requests,
-            futures::channel::oneshot::Sender<Result<Responses, String>>,
-        )>,
-    >,
+    sender: SenderCh,
     view: Arc<ChainView>,
 }
 
@@ -134,6 +138,7 @@ async fn get_transaction(hash: web::Path<String>, data: web::Data<AppState>) -> 
         })),
     }
 }
+
 /// The handler for the `/block/{height}` endpoint. It returns the block at the given height.
 async fn get_block_by_height(height: web::Path<u32>, data: web::Data<AppState>) -> impl Responder {
     let height = height.into_inner();
@@ -294,16 +299,7 @@ impl From<Proof> for JsonProof {
 struct UBlock {
     block: Block,
     proof: JsonProof,
-    leaf_data: Vec<LeafData>,
-}
-#[derive(Clone, Serialize, Deserialize)]
-struct LeafData {
-    /// Header code tells the height of creating for this UTXO and whether it's a coinbase
-    pub header_code: u32,
-    /// The amount locked in this UTXO
-    pub amount: u64,
-    /// The type of the locking script for this UTXO
-    pub spk_ty: ScriptPubkeyType,
+    leaf_data: Vec<CompactLeafData>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
@@ -326,7 +322,7 @@ impl From<UtreexoBlock> for UBlock {
             hashes: proof
                 .hashes
                 .iter()
-                .map(|x| BitcoinNodeHash::from(x.as_inner()))
+                .map(|x| BitcoinNodeHash::from(x.to_raw_hash().to_byte_array()))
                 .collect(),
             targets: proof.targets.iter().map(|x| x.0).collect(),
         }
@@ -335,11 +331,10 @@ impl From<UtreexoBlock> for UBlock {
         let leaves = block.udata.clone().unwrap().leaves.clone();
         let block = block.block;
 
-        let leaf_data = unsafe { std::mem::transmute(leaves) };
         Self {
             block,
             proof,
-            leaf_data,
+            leaf_data: leaves,
         }
     }
 }

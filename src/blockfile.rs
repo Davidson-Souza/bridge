@@ -8,18 +8,14 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Seek;
+use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::slice;
 
+use bitcoin::consensus::serialize;
 use bitcoin::consensus::Decodable;
-use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
-use bitcoin::network::utreexo::BatchProof;
-use bitcoin::network::utreexo::CompactLeafData;
-use bitcoin::network::utreexo::ScriptPubkeyType;
-use bitcoin::network::utreexo::UData;
-use bitcoin::network::utreexo::UtreexoBlock;
 use bitcoin::Block;
 use bitcoin::BlockHash;
 use bitcoin::Script;
@@ -29,6 +25,11 @@ use mmap::MemoryMap;
 
 use crate::block_index::BlockIndex;
 use crate::prover::BlockStorage;
+use crate::udata::BatchProof;
+use crate::udata::CompactLeafData;
+use crate::udata::ScriptPubkeyType;
+use crate::udata::UData;
+use crate::udata::UtreexoBlock;
 
 /// A file that holds all blocks and proofs in a memory-mapped file.
 pub struct BlockFile {
@@ -82,11 +83,16 @@ impl BlockFile {
         }
     }
 
+    pub fn get_block_slice(&self, index: BlockIndex) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.read(&index), index.size) }
+    }
+
     /// Appends a block to the file and returns the index of the block.
     pub fn append(&mut self, block: &UtreexoBlock) -> BlockIndex {
         // seek to the end of the file
         self.file.seek(std::io::SeekFrom::End(0)).unwrap();
-        let size = block.consensus_encode(&mut self.file).unwrap();
+        let buffer = serialize(block);
+        let size = self.file.write(&buffer).unwrap();
         self.writer_pos += size;
 
         BlockIndex {
@@ -108,9 +114,9 @@ impl BlockFile {
             ScriptPubkeyType::PubKeyHash
         } else if spk.is_p2sh() {
             ScriptPubkeyType::ScriptHash
-        } else if spk.is_v0_p2wpkh() {
+        } else if spk.is_p2wpkh() {
             ScriptPubkeyType::WitnessV0PubKeyHash
-        } else if spk.is_v0_p2wsh() {
+        } else if spk.is_p2wsh() {
             ScriptPubkeyType::WitnessV0ScriptHash
         } else {
             ScriptPubkeyType::Other(spk.to_bytes().into_boxed_slice())
@@ -132,7 +138,7 @@ impl BlockStorage for BlockFile {
             hashes: proof
                 .hashes
                 .iter()
-                .map(|x| BlockHash::from_inner(**x))
+                .map(|x| BlockHash::from_byte_array(**x))
                 .collect(),
         };
 
@@ -149,7 +155,7 @@ impl BlockStorage for BlockFile {
             })
             .collect();
 
-        let block = bitcoin::network::utreexo::UtreexoBlock {
+        let block = UtreexoBlock {
             block: block.clone(),
             udata: Some(UData {
                 remember_idx: vec![],

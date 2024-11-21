@@ -13,8 +13,8 @@ keywords = ["utreexo", "bitcoin", "blockchain", "rust"]
 categories = ["bitcoin", "tools"]
 
 [dependencies]
-bitcoin = { version = "0.29" }
-bitcoincore-rpc = "0.16.0"
+bitcoin = { version = "0.32.4", features = ["serde"] }
+bitcoincore-rpc = "0.19"
 bitcoin_hashes = "0.11"
 rustreexo = { git = "https://github.com/mit-dci/rustreexo", rev = "91f70ef", features = ["with-serde"] }
 sha2 = "0.10.6"
@@ -47,8 +47,6 @@ clap = { version = "4.5.20", features = ["derive"] }
 time = "0.3.36"
 ahash = "0.8.11"
 ctrlc = "3.4.5"
-[patch."https://github.com/rust-lang/crates.io-index"]
-bitcoin = { git = "https://github.com/Davidson-Souza/rust-bitcoin", rev = "a320c6535567acd3771da37759a7644eea5c6eb2" }
 
 [features]
 default = ["bitcoin", "node", "api"]
