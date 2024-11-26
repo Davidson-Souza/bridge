@@ -142,15 +142,3 @@ fn get_chain_provider() -> Result<Box<dyn Blockchain>> {
         Err(e) => Err(anyhow::anyhow!("Couldn't connect to bitcoin core: {e}")),
     }
 }
-
-#[cfg(not(feature = "shinigami"))]
-macro_rules! try_and_log_error {
-    ($op:expr) => {
-        if let Err(e) = $op {
-            error!("Error: {}", e);
-        }
-    };
-}
-
-#[cfg(not(feature = "shinigami"))]
-pub(crate) use try_and_log_error;

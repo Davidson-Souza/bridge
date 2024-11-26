@@ -112,7 +112,6 @@ impl DiskLeafStorage {
             // Don't uncache things that are too recent
             if *height < 100 {
                 new_map.insert(*outpoint, (*height, leaf_data.clone()));
-                continue;
             }
 
             let serialized = Self::serialize_leaf_data(leaf_data);
