@@ -47,6 +47,7 @@ clap = { version = "4.5.20", features = ["derive"] }
 time = "0.3.36"
 ahash = "0.8.11"
 ctrlc = "3.4.5"
+mio = { version = "1.0.2", features = ["net", "os-poll"] }
 
 [features]
 default = ["bitcoin", "node", "api"]

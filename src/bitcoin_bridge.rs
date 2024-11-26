@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 
 use actix_rt::signal::ctrl_c;
+use bitcoin::consensus::serialize;
+use bitcoin::constants::genesis_block;
 use clap::Parser;
 use futures::channel::mpsc::channel;
 use log::info;
@@ -19,7 +21,7 @@ use crate::get_chain_provider;
 use crate::init_logger;
 use crate::leaf_cache::DiskLeafStorage;
 use crate::node;
-use crate::node::Node;
+use crate::node::WorkerContext;
 use crate::prover;
 use crate::subdir;
 
@@ -54,6 +56,16 @@ pub fn run_bridge() -> anyhow::Result<()> {
     let view = chainview::ChainView::new(store);
     let view = Arc::new(view);
 
+    let net: bitcoin::Network = cli_options.network.into();
+    let genesis = genesis_block(net);
+
+    if view.get_height(genesis.block_hash()).is_err() {
+        view.save_header(genesis.block_hash(), serialize(&genesis.header))
+            .expect("Failed to save genesis header");
+        view.save_height(genesis.header.block_hash(), 0)
+            .expect("Failed to save genesis height");
+    }
+
     // This database stores some useful information about the blocks, but not
     // the blocks themselves
     let index_store = BlocksIndex {
@@ -70,7 +82,6 @@ pub fn run_bridge() -> anyhow::Result<()> {
 
     // Put it into an Arc so we can share it between threads
     let index_store = Arc::new(index_store);
-
     // This database stores the blocks themselves, it's a collection of flat files
     // that are indexed by the index above. They are stored in the `blocks/` directory
     // and are serialized as bitcoin blocks, so we don't need to do any parsing
@@ -121,23 +132,20 @@ pub fn run_bridge() -> anyhow::Result<()> {
         p2p_port
     );
 
-    let listener = std::net::TcpListener::bind(p2p_address).unwrap();
+    let worker_context = WorkerContext {
+        chainview: view.clone(),
+        magic: cli_options.network.magic(),
+        proof_index: index_store.clone(),
+        proof_backend: blocks.clone(),
+    };
 
-    let node = node::Node::new(
-        listener,
-        blocks,
-        index_store,
-        view.clone(),
+    node::Node::run(
+        p2p_address.parse().unwrap(),
+        worker_context,
         block_notifier_rx,
-        cli_options.network.magic(),
     );
 
-    std::thread::spawn(move || {
-        Node::accept_connections(node);
-    });
-
     let (sender, receiver) = channel(1024);
-
     // This is our implementation of the json-rpc api, it will listen for
     // incoming connections and serve some Utreexo data to clients.
     info!("Starting api");
