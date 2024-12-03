@@ -356,14 +356,12 @@ impl<LeafStorage: LeafCache, Storage: BlockStorage> Prover<LeafStorage, Storage>
                     .map_err(|_| anyhow::anyhow!("Error sending response"))?;
             }
 
-            if last_tip_update.elapsed().as_secs() > 10 {
-                if let Err(e) = self.check_tip(&mut last_tip_update) {
-                    error!("Error checking tip: {}", e);
-                    continue;
-                }
+            if let Err(e) = self.check_tip(&mut last_tip_update) {
+                error!("Error checking tip: {}", e);
+                continue;
             }
 
-            std::thread::sleep(std::time::Duration::from_micros(100));
+            std::thread::sleep(std::time::Duration::from_secs(10));
         }
         self.save_to_disk(None)
             .expect("could not save the acc to disk");
