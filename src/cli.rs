@@ -22,6 +22,17 @@ impl Network {
     }
 }
 
+impl From<Network> for bitcoin::Network {
+    fn from(network: Network) -> Self {
+        match network {
+            Network::Mainnet => bitcoin::Network::Bitcoin,
+            Network::Testnet3 => bitcoin::Network::Testnet,
+            Network::Signet => bitcoin::Network::Signet,
+            Network::Regtest => bitcoin::Network::Regtest,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 pub struct CliArgs {
     /// If you want to run the bridge from a specific height, you can specify it here.

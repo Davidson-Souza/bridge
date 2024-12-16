@@ -647,6 +647,7 @@ dependencies = [
  "jemallocator",
  "kv",
  "log",
+ "mio",
  "mmap",
  "reqwest",
  "rustreexo",
