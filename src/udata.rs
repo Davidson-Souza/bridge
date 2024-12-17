@@ -512,7 +512,7 @@ pub mod shinigami_udata {
         // **both** children are not empty.
         fn parent_hash(left: &Self, right: &Self) -> Self {
             if let (PoseidonHash::Hash(left), PoseidonHash::Hash(right)) = (left, right) {
-                return PoseidonHash::Hash(poseidon_hash(left, right));
+                return PoseidonHash::Hash(poseidon_hash(*left, *right));
             }
 
             // This should never happen, since rustreexo won't call this method unless both children
